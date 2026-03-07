@@ -166,4 +166,187 @@ router.post('/update-config', (req, res) => {
   }
 });
 
+// POST /api/sync/test-sync - Test sync functionality
+router.post('/test-sync', async (req, res) => {
+  try {
+    logger.info('Running comprehensive sync test');
+    
+    const testResults = {
+      timestamp: new Date().toISOString(),
+      tests: {}
+    };
+
+    // Test 1: Cloud Connection
+    try {
+      const connectionStatus = await syncService.testCloudConnection();
+      testResults.tests.cloudConnection = {
+        success: connectionStatus.connected,
+        data: connectionStatus,
+        message: connectionStatus.connected ? 'Cloud backend reachable' : 'Cloud backend not reachable'
+      };
+    } catch (error) {
+      testResults.tests.cloudConnection = {
+        success: false,
+        error: error.message,
+        message: 'Cloud connection test failed'
+      };
+    }
+
+    // Test 2: Sync State Manager
+    try {
+      const syncStatus = syncService.getSyncStatus();
+      testResults.tests.syncStateManager = {
+        success: true,
+        data: syncStatus,
+        message: 'Sync state manager working'
+      };
+    } catch (error) {
+      testResults.tests.syncStateManager = {
+        success: false,
+        error: error.message,
+        message: 'Sync state manager test failed'
+      };
+    }
+
+    // Test 3: Scheduler Status
+    try {
+      const schedulerStatus = syncScheduler.getStatus();
+      testResults.tests.schedulerStatus = {
+        success: schedulerStatus.isRunning,
+        data: schedulerStatus,
+        message: schedulerStatus.isRunning ? 'Scheduler running' : 'Scheduler not running'
+      };
+    } catch (error) {
+      testResults.tests.schedulerStatus = {
+        success: false,
+        error: error.message,
+        message: 'Scheduler status test failed'
+      };
+    }
+
+    // Test 4: Mock Sync Data (without actual data)
+    try {
+      const mockCandidateData = {
+        hallTicket: 'TEST_' + Date.now(),
+        id: 'TEST_CANDIDATE',
+        candidateName: 'Test Candidate',
+        emailId: 'test@example.com',
+        phone: '1234567890',
+        gender: 'other',
+        centreCode: 'TEST001',
+        centreName: 'Test Centre',
+        examSlot: 'MORNING',
+        examId: 'TEST_EXAM',
+        userExamApplicationId: 'TEST_APP',
+        timestamp: new Date().toISOString(),
+        faceData: null, // Don't send actual data in test
+        thumbData: null,
+        ISOTemplateBase64: null,
+        TemplateBase64: null
+      };
+
+      // Test sync data preparation (without actually sending)
+      const syncId = syncService.generateSyncId(mockCandidateData.hallTicket, 'face');
+      testResults.tests.syncDataPreparation = {
+        success: true,
+        data: {
+          syncId,
+          hallTicket: mockCandidateData.hallTicket,
+          biometricType: 'face'
+        },
+        message: 'Sync data preparation working'
+      };
+    } catch (error) {
+      testResults.tests.syncDataPreparation = {
+        success: false,
+        error: error.message,
+        message: 'Sync data preparation failed'
+      };
+    }
+
+    // Test 5: File System Operations
+    try {
+      const fs = require('fs');
+      const path = require('path');
+      
+      // Test data directory creation
+      const dataDir = path.join(__dirname, '../../data');
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+      }
+      
+      testResults.tests.fileSystem = {
+        success: true,
+        data: { dataDir: dataDir },
+        message: 'File system operations working'
+      };
+    } catch (error) {
+      testResults.tests.fileSystem = {
+        success: false,
+        error: error.message,
+        message: 'File system test failed'
+      };
+    }
+
+    // Calculate overall success
+    const totalTests = Object.keys(testResults.tests).length;
+    const successfulTests = Object.values(testResults.tests).filter(test => test.success).length;
+    const overallSuccess = successfulTests === totalTests;
+
+    testResults.summary = {
+      totalTests,
+      successfulTests,
+      failedTests: totalTests - successfulTests,
+      overallSuccess,
+      successRate: Math.round((successfulTests / totalTests) * 100)
+    };
+
+    logger.info('Sync test completed', testResults.summary);
+
+    res.json({
+      successful: true,
+      message: `Sync test completed: ${successfulTests}/${totalTests} tests passed`,
+      data: testResults
+    });
+
+  } catch (error) {
+    logger.error('Error running sync test:', error);
+    res.status(500).json({
+      successful: false,
+      error: 'Failed to run sync test',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/sync/test-summary - Get quick test summary
+router.get('/test-summary', async (req, res) => {
+  try {
+    const quickTest = {
+      timestamp: new Date().toISOString(),
+      localBackend: {
+        status: 'running',
+        port: process.env.PORT || 8080,
+        environment: process.env.NODE_ENV || 'development'
+      },
+      cloudConnection: await syncService.testCloudConnection(),
+      scheduler: syncScheduler.getStatus(),
+      syncState: syncService.getSyncStatus()
+    };
+
+    res.json({
+      successful: true,
+      message: 'Quick test summary',
+      data: quickTest
+    });
+
+  } catch (error) {
+    logger.error('Error getting test summary:', error);
+    res.status(500).json({
+      successful: false,
+      error: 'Failed to get test summary'
+    });
+  }
+});
+
 module.exports = router;

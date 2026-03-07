@@ -7,7 +7,7 @@ const SyncStateManager = require('./syncStateManager');
 
 class SyncService {
   constructor() {
-    this.cloudBackendUrl = process.env.CLOUD_BACKEND_URL || 'http://localhost:3000';
+    this.cloudBackendUrl = process.env.CLOUD_BACKEND_URL || 'http://localhost:8040';
     this.syncStateManager = new SyncStateManager();
     this.syncInProgress = false;
     this.maxRetries = 3;
