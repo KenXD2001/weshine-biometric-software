@@ -204,10 +204,10 @@ class SyncService {
     }
 
     this.syncInProgress = true;
-    const failedItems = this.syncStateManager.getFailedSync();
-    
-    logger.info('Starting retry of failed syncs', {
-      totalFailed: failedItems.length
+    // Use pending items for retries so we attempt items that failed due to transient errors
+    const pendingItems = this.syncStateManager.getPendingSync();
+    logger.info('Starting retry of pending failed syncs', {
+      totalPending: pendingItems.length
     });
 
     const results = {
@@ -217,9 +217,10 @@ class SyncService {
       errors: []
     };
 
-    for (const item of failedItems) {
+    // Retry pending items (those not yet synced). We only attempt items whose retryCount < maxRetries
+    for (const item of pendingItems) {
       if (item.retryCount >= this.maxRetries) {
-        logger.warn('Max retries exceeded, skipping', {
+        logger.warn('Item reached max retries, skipping until marked failed', {
           hallTicket: item.hallTicket,
           biometricType: item.biometricType,
           retryCount: item.retryCount
@@ -227,10 +228,9 @@ class SyncService {
         continue;
       }
 
-      // Calculate exponential backoff delay
       const delay = Math.pow(2, item.retryCount) * this.baseDelay;
-      
-      logger.info('Retrying failed sync', {
+
+      logger.info('Retrying pending sync', {
         hallTicket: item.hallTicket,
         biometricType: item.biometricType,
         retryCount: item.retryCount,
@@ -240,15 +240,12 @@ class SyncService {
       // Wait for backoff delay
       await new Promise(resolve => setTimeout(resolve, delay));
 
-      // Reset retry count and retry
-      this.syncStateManager.resetRetryCount(item.hallTicket, item.biometricType);
-      
-      // Get candidate data (this would need to be implemented based on your data structure)
+      // Don't reset retry count before attempting; let markAsFailed increment it on failure
       const candidateData = await this.getCandidateData(item.hallTicket);
       if (candidateData) {
         const result = await this.syncBiometricData(candidateData, item.biometricType);
         results.retried++;
-        
+
         if (result.success) {
           results.successful++;
         } else {
@@ -259,6 +256,8 @@ class SyncService {
             error: result.error
           });
         }
+      } else {
+        logger.warn('Candidate data not found for retry', { hallTicket: item.hallTicket });
       }
     }
 
