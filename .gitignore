@@ -98,6 +98,10 @@ local_backend/data/*.json
 local_backend/uploads/*
 !local_backend/uploads/.gitkeep
 
+# Ignore temp sync and fallback user data
+local_backend/.temp-sync/
+local_backend/user_data_fallback/
+
 # Test files that shouldn't be committed
 test.json
 

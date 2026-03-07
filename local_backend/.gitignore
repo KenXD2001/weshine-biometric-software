@@ -1,0 +1,3 @@
+# Ignore temp sync images and fallback user data
+.temp-sync/
+user_data_fallback/

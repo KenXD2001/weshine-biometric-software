@@ -14,8 +14,9 @@ const logger = require('./config/logger');
 const SyncScheduler = require('./services/syncScheduler');
 
 const app = express();
-const PORT = process.env.PORT;
-const HOST = process.env.HOST;
+const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = process.env.PORT || 3030;
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Security middleware with relaxed CSP for development
 app.use(helmet({
@@ -76,7 +77,7 @@ const path = require('path');
 
 // Use proper upload directory path like multer configuration
 let uploadDir;
-if (process.env.NODE_ENV === 'production' && process.resourcesPath) {
+if (NODE_ENV === 'production' && process.resourcesPath) {
   // In packaged Electron, use resources/uploads (outside asar)
   uploadDir = path.join(process.resourcesPath, 'uploads');
 } else {
@@ -177,16 +178,16 @@ app.listen(PORT, HOST, () => {
   logger.success(`Server started successfully`, {
     port: PORT,
     host: HOST,
-    environment: process.env.NODE_ENV,
+    environment: NODE_ENV,
     pid: process.pid
   });
-  
+
   console.log(`
 ╔══════════════════════════════════════════════════════════════╗
 ║                    DIGI BIOMETRIC BACKEND                   ║
 ╠══════════════════════════════════════════════════════════════╣
 ║  Server running on: http://${HOST}:${PORT}                    ║
-║  Environment: ${(process.env.NODE_ENV).padEnd(47)} ║
+║  Environment: ${NODE_ENV.padEnd(47)} ║
 ║  Process ID: ${process.pid.toString().padEnd(49)} ║
 ║  Start Time: ${new Date().toISOString().replace('T', ' ').replace('Z', '').padEnd(43)} ║
 ║  Sync Scheduler: RUNNING                                        ║
