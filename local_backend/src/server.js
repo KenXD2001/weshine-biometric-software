@@ -11,6 +11,7 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const logger = require('./config/logger');
+const SyncScheduler = require('./services/syncScheduler');
 
 const app = express();
 const PORT = process.env.PORT;
@@ -120,6 +121,9 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api', require('./routes/api'));
 
+// Add sync routes
+app.use('/api/sync', require('./routes/sync'));
+
 // Root endpoint
 app.get('/', (req, res) => {
   logger.info('Root endpoint accessed', { ip: req.ip });
@@ -162,8 +166,14 @@ app.use((err, req, res, next) => {
   });
 });
 
+// Initialize and start sync scheduler
+const syncScheduler = new SyncScheduler();
+
 // Start server
 app.listen(PORT, HOST, () => {
+  // Start sync scheduler after server is ready
+  syncScheduler.start();
+  
   logger.success(`Server started successfully`, {
     port: PORT,
     host: HOST,
@@ -179,6 +189,7 @@ app.listen(PORT, HOST, () => {
 ║  Environment: ${(process.env.NODE_ENV).padEnd(47)} ║
 ║  Process ID: ${process.pid.toString().padEnd(49)} ║
 ║  Start Time: ${new Date().toISOString().replace('T', ' ').replace('Z', '').padEnd(43)} ║
+║  Sync Scheduler: RUNNING                                        ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 });
@@ -186,11 +197,13 @@ app.listen(PORT, HOST, () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully');
+  syncScheduler.stop();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received, shutting down gracefully');
+  syncScheduler.stop();
   process.exit(0);
 });
 

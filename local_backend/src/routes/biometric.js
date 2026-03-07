@@ -6,9 +6,13 @@ const path = require('path');
 const FormData = require('form-data');
 const logger = require('../config/logger');
 const imageStorage = require('../utils/imageStorage');
+const SyncService = require('../services/syncService');
 
 // Mock biometric data storage (replace with database in production)
 const biometricData = new Map();
+
+// Initialize sync service
+const syncService = new SyncService();
 
 // Helper function to convert base64 to image file
 function base64ToImageFile(base64Data, imageType) {
@@ -210,40 +214,33 @@ router.post('/submit-face-capture', async (req, res) => {
       candidateId: candidate.id
     });
 
-    // Convert base64 images to actual files and sync to cloud backend
-    const faceImagePath = faceData ? base64ToImageFile(faceData, 'face') : null;
-
-    // ASYNC: Send ONLY face image to cloud backend (don't wait for response, don't block frontend)
-    syncBiometricDataToCloud({
-      // Candidate Identification
-      hallTicket,
-      candidateId: candidate.id,
-      candidateName: candidate.candidateName,
-      emailId: candidate.emailId,
-      phone: candidate.phone || '',
-      gender: candidate.gender || 'other',
-      
-      // Biometric Image Paths (actual PNG files, not base64)
-      faceImagePath: faceImagePath,
-      thumbImagePath: null,
-      captureType: 'face',
-      imageSource: 'webcam',
-      
-      // Centre Information (use candidate value or stored centre info; do NOT use mock defaults)
-      centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
-      centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-      examSlot: candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
-      
-      // Exam Information
-      examId: candidate.examId || '',
-      userExamApplicationId: candidate.userExamApplicationId || '',
-      
-      // Sync Metadata
-      timestamp: candidate.imageCaptureTimestamp,
-      localBackendId: process.env.LOCAL_BACKEND_ID || 'local-biometric-center-1'
-    }).catch(err => {
-      // Error already logged in syncBiometricDataToCloud
-    });
+    // ASYNC: Send face data to cloud using new sync service
+    (async () => {
+      try {
+        const candidateData = {
+          hallTicket,
+          id: candidate.id,
+          candidateName: candidate.candidateName,
+          emailId: candidate.emailId,
+          phone: candidate.phone || '',
+          gender: candidate.gender || 'other',
+          centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
+          centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
+          examSlot: candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
+          examId: candidate.examId || '',
+          userExamApplicationId: candidate.userExamApplicationId || '',
+          timestamp: candidate.imageCaptureTimestamp,
+          faceData: faceData,
+          thumbData: null,
+          ISOTemplateBase64: null,
+          TemplateBase64: null
+        };
+        
+        await syncService.syncBiometricData(candidateData, 'face');
+      } catch (syncError) {
+        logger.error('Face sync error:', syncError);
+      }
+    })();
 
     res.json({
       successful: true,
@@ -330,44 +327,33 @@ router.post('/submit-thumb-capture', async (req, res) => {
       responseErrorCode: secugenApiResponse?.ErrorCode
     });
 
-    // Convert base64 images to actual files and sync to cloud backend
-    const thumbImagePath = thumbData ? base64ToImageFile(thumbData, 'thumb') : null;
-
-    // ASYNC: Send ONLY thumb image to cloud backend (don't wait for response, don't block frontend)
-    syncBiometricDataToCloud({
-      // Candidate Identification
-      hallTicket,
-      candidateId: candidate.id,
-      candidateName: candidate.candidateName,
-      emailId: candidate.emailId,
-      phone: candidate.phone || '',
-      gender: candidate.gender || 'other',
-      
-      // Biometric Image Paths (actual PNG files, not base64)
-      faceImagePath: null,
-      thumbImagePath: thumbImagePath,
-      captureType: 'thumb',
-      imageSource: 'fingerprint',
-      
-      // Essential Template Fields Only
-      ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
-      TemplateBase64: candidate.TemplateBase64 || null,
-      
-      // Centre Information (use candidate value or stored centre info; do NOT use mock defaults)
-      centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
-      centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-      examSlot: candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
-      
-      // Exam Information
-      examId: candidate.examId || '',
-      userExamApplicationId: candidate.userExamApplicationId || '',
-      
-      // Sync Metadata
-      timestamp: candidate.thumbCaptureTimestamp,
-      localBackendId: process.env.LOCAL_BACKEND_ID || 'local-biometric-center-1'
-    }).catch(err => {
-      // Error already logged in syncBiometricDataToCloud
-    });
+    // ASYNC: Send thumb data to cloud using new sync service
+    (async () => {
+      try {
+        const candidateData = {
+          hallTicket,
+          id: candidate.id,
+          candidateName: candidate.candidateName,
+          emailId: candidate.emailId,
+          phone: candidate.phone || '',
+          gender: candidate.gender || 'other',
+          centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
+          centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
+          examSlot: candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
+          examId: candidate.examId || '',
+          userExamApplicationId: candidate.userExamApplicationId || '',
+          timestamp: candidate.thumbCaptureTimestamp,
+          faceData: null,
+          thumbData: thumbData,
+          ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
+          TemplateBase64: candidate.TemplateBase64 || null
+        };
+        
+        await syncService.syncBiometricData(candidateData, 'thumb');
+      } catch (syncError) {
+        logger.error('Thumb sync error:', syncError);
+      }
+    })();
 
     res.json({
       successful: true,
