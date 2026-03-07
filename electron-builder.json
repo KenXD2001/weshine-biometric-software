@@ -1,0 +1,69 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.digi.biometric",
+  "productName": "Digi Biometric System",
+  "copyright": "Copyright © 2024 Digi Biometric",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "electron/resources"
+  },
+    "files": [
+    "electron/**/*",
+    "local_backend/**/*",
+    "!local_backend/logs/**/*",
+    "!local_backend/data/*.json",
+    "!local_backend/uploads/*",
+    "local_frontend/dist/**/*",
+    "package.json"
+  ],
+  "asarUnpack": [
+    "local_frontend/dist/**/*",
+    "local_backend/node_modules/**/*",
+    "node_modules/**/*",
+    "local_backend/.env",
+    "local_frontend/.env"
+  ],
+  "extraResources": [
+    {
+      "from": "local_backend/.env.example",
+      "to": "local_backend/.env.example",
+      "filter": ["**/*"]
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "electron/resources/icon.ico",
+    "artifactName": "${productName}-Setup-${version}.${ext}",
+    "requestedExecutionLevel": "requireAdministrator",
+    "publisherName": "Digi Biometric"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowElevation": true,
+    "allowToChangeInstallationDirectory": true,
+    "perMachine": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "installerIcon": "electron/resources/icon.ico",
+    "uninstallerIcon": "electron/resources/icon.ico",
+    "installerHeaderIcon": "electron/resources/icon.ico",
+    "shortcutName": "Digi Biometric System",
+    "license": "LICENSE.txt",
+    "runAfterFinish": true,
+    "deleteAppDataOnUninstall": false
+  },
+  "portable": {
+    "artifactName": "${productName}-Portable-${version}.${ext}"
+  },
+  "publish": null
+}
+
