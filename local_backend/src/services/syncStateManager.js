@@ -82,18 +82,19 @@ class SyncStateManager {
     }
     
     // Update biometric type status
+    const existingStatus = this.syncState.syncStatus[hallTicket][biometricType] || {};
     this.syncState.syncStatus[hallTicket][biometricType] = {
-      syncId,
+      syncId: updateData.syncId || existingStatus.syncId || `sync_${Date.now()}_${hallTicket}_${biometricType}`,
       hallTicket,
       biometricType,
-      localPath: updateData.localPath || null,
-      synced: updateData.synced || false,
-      cloudId: updateData.cloudId || null,
-      syncedAt: updateData.syncedAt || null,
-      error: updateData.error || null,
+      localPath: updateData.localPath !== undefined ? updateData.localPath : existingStatus.localPath || null,
+      synced: updateData.synced !== undefined ? updateData.synced : existingStatus.synced || false,
+      cloudId: updateData.cloudId !== undefined ? updateData.cloudId : existingStatus.cloudId || null,
+      syncedAt: updateData.syncedAt !== undefined ? updateData.syncedAt : existingStatus.syncedAt || null,
+      error: updateData.error !== undefined ? updateData.error : existingStatus.error || null,
       lastAttempt: updateData.lastAttempt || new Date().toISOString(),
-      retryCount: updateData.retryCount || 0,
-      createdAt: updateData.createdAt || new Date().toISOString()
+      retryCount: updateData.retryCount !== undefined ? updateData.retryCount : existingStatus.retryCount || 0,
+      createdAt: updateData.createdAt !== undefined ? updateData.createdAt : existingStatus.createdAt || new Date().toISOString()
     };
     
     // Update pending/failed lists
@@ -164,16 +165,22 @@ class SyncStateManager {
 
   // Get candidates pending sync
   getPendingSync() {
+    // Reload state from disk to get latest data
+    this.syncState = this.loadSyncState();
     return this.syncState.pendingSync;
   }
 
   // Get failed sync items
   getFailedSync() {
+    // Reload state from disk to get latest data
+    this.syncState = this.loadSyncState();
     return this.syncState.failedSync;
   }
 
   // Get sync status for specific candidate
   getCandidateSyncStatus(hallTicket) {
+    // Reload state from disk to get latest data
+    this.syncState = this.loadSyncState();
     return this.syncState.syncStatus[hallTicket] || null;
   }
 

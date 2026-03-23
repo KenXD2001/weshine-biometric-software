@@ -8,6 +8,7 @@ class SyncScheduler {
     this.syncInterval = null;
     this.retryInterval = null;
     this.connectionCheckInterval = null;
+    this.wasConnected = true; // Track previous connection state
     
     // Configuration
     this.syncIntervalMs = parseInt(process.env.SYNC_INTERVAL_MS) || 300000; // 5 minutes
@@ -124,6 +125,7 @@ class SyncScheduler {
         const connectionStatus = await this.syncService.testCloudConnection();
         
         if (!connectionStatus.connected) {
+          this.wasConnected = false;
           logger.warn('Cloud connection lost', {
             error: connectionStatus.error,
             timestamp: connectionStatus.timestamp
@@ -132,13 +134,69 @@ class SyncScheduler {
           logger.debug('Cloud connection healthy', {
             responseTime: connectionStatus.responseTime
           });
+          
+          // Trigger sync on connection recovery
+          if (!this.wasConnected) {
+            this.wasConnected = true;
+            logger.info('Cloud connection restored, triggering immediate sync', {
+              responseTime: connectionStatus.responseTime,
+              timestamp: connectionStatus.timestamp
+            });
+            
+            // Trigger immediate sync for pending items
+            this.triggerRecoverySync();
+          }
         }
       } catch (error) {
+        this.wasConnected = false;
         logger.error('Connection check error:', error);
       }
     }, this.connectionCheckMs);
 
     logger.debug('Connection checks scheduled', { interval: this.connectionCheckMs });
+  }
+
+  // Trigger sync on connection recovery
+  async triggerRecoverySync() {
+    try {
+      // Get pending items count
+      const pendingItems = this.syncService.syncStateManager.getPendingSync();
+      
+      if (pendingItems.length === 0) {
+        logger.debug('No pending items to sync on recovery');
+        return;
+      }
+      
+      logger.info('Starting recovery sync for pending items', {
+        pendingCount: pendingItems.length
+      });
+      
+      // Check if sync is already in progress to avoid conflicts
+      if (this.syncService.syncInProgress) {
+        logger.debug('Sync already in progress, recovery sync will be handled by existing process');
+        return;
+      }
+      
+      // Sync pending items immediately
+      const results = await this.syncService.syncAllPending();
+      
+      if (results.length > 0) {
+        const successful = results.filter(r => r.result.success).length;
+        const failed = results.filter(r => !r.result.success).length;
+        
+        logger.info('Recovery sync completed', {
+          totalProcessed: results.length,
+          successful,
+          failed
+        });
+      }
+    } catch (error) {
+      logger.error('Recovery sync error:', {
+        message: error.message || 'Unknown error',
+        stack: error.stack,
+        error: error
+      });
+    }
   }
 
   // Manual trigger for immediate sync

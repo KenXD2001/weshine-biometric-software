@@ -62,6 +62,7 @@ class SyncService {
   async syncBiometricData(candidateData, biometricType) {
     const syncId = this.generateSyncId(candidateData.hallTicket, biometricType);
     const startTime = Date.now();
+    let imageFilePath = null; // Declare at function scope
     
     try {
       logger.info('Starting biometric sync', {
@@ -79,12 +80,40 @@ class SyncService {
         retryCount: 0
       });
 
-      // Prepare image file
+      // Prepare image file - use existing saved image path first
       let imageFilePath = null;
-      if (candidateData.faceData && biometricType === 'face') {
+      if (candidateData.localImagePath && fs.existsSync(candidateData.localImagePath)) {
+        // Use the already saved image file from capture time
+        imageFilePath = candidateData.localImagePath;
+        logger.debug('Using existing image file', {
+          hallTicket: candidateData.hallTicket,
+          biometricType,
+          imagePath: imageFilePath
+        });
+      } else if (candidateData.faceData && biometricType === 'face') {
+        // Fallback: create image from base64 data
         imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateData.hallTicket);
+        logger.debug('Created image file from base64', {
+          hallTicket: candidateData.hallTicket,
+          biometricType,
+          imagePath: imageFilePath
+        });
       } else if (candidateData.thumbData && biometricType === 'thumb') {
+        // Fallback: create image from base64 data
         imageFilePath = this.prepareImageFile(candidateData.thumbData, 'thumb', candidateData.hallTicket);
+        logger.debug('Created image file from base64', {
+          hallTicket: candidateData.hallTicket,
+          biometricType,
+          imagePath: imageFilePath
+        });
+      } else {
+        logger.warn('No image data available for sync', {
+          hallTicket: candidateData.hallTicket,
+          biometricType,
+          hasLocalPath: !!candidateData.localImagePath,
+          hasFaceData: !!candidateData.faceData,
+          hasThumbData: !!candidateData.thumbData
+        });
       }
 
       // Prepare FormData for multipart upload
@@ -134,6 +163,11 @@ class SyncService {
       const processingTime = Date.now() - startTime;
 
       if (response.data && response.data.success) {
+        // Validate cloudId before marking as synced
+        if (!response.data.cloudId) {
+          throw new Error('Cloud sync returned success but no cloudId provided');
+        }
+        
         // Success - update sync state
         this.syncStateManager.markAsSynced(candidateData.hallTicket, biometricType, response.data.cloudId);
         this.syncStateManager.updateLastSyncTimestamp();
@@ -243,17 +277,32 @@ class SyncService {
       // Don't reset retry count before attempting; let markAsFailed increment it on failure
       const candidateData = await this.getCandidateData(item.hallTicket);
       if (candidateData) {
-        const result = await this.syncBiometricData(candidateData, item.biometricType);
-        results.retried++;
+        // Add image path from sync state
+        const syncStatus = this.syncStateManager.getCandidateSyncStatus(item.hallTicket);
+        if (syncStatus && syncStatus[item.biometricType]) {
+          candidateData.localImagePath = syncStatus[item.biometricType].localPath;
+        }
+        
+        try {
+          const result = await this.syncBiometricData(candidateData, item.biometricType);
+          results.retried++;
 
-        if (result.success) {
-          results.successful++;
-        } else {
+          if (result.success) {
+            results.successful++;
+          } else {
+            results.failed++;
+            results.errors.push({
+              hallTicket: item.hallTicket,
+              biometricType: item.biometricType,
+              error: result.error
+            });
+          }
+        } catch (syncError) {
           results.failed++;
           results.errors.push({
             hallTicket: item.hallTicket,
             biometricType: item.biometricType,
-            error: result.error
+            error: syncError.message
           });
         }
       } else {
@@ -325,6 +374,12 @@ class SyncService {
     for (const item of pendingItems) {
       const candidateData = await this.getCandidateData(item.hallTicket);
       if (candidateData) {
+        // Add image path from sync state
+        const syncStatus = this.syncStateManager.getCandidateSyncStatus(item.hallTicket);
+        if (syncStatus && syncStatus[item.biometricType]) {
+          candidateData.localImagePath = syncStatus[item.biometricType].localPath;
+        }
+        
         const result = await this.syncBiometricData(candidateData, item.biometricType);
         results.push({
           hallTicket: item.hallTicket,
@@ -358,13 +413,12 @@ class SyncService {
   // Test connection to cloud backend
   async testCloudConnection() {
     try {
-      const response = await axios.get(`${this.cloudBackendUrl}/api/health`, {
-        timeout: 5000
-      });
-      
+      const start = Date.now();
+      await axios.get(`${this.cloudBackendUrl}/api/health`, { timeout: 5000 });
+      const responseTime = `${Date.now() - start}ms`;
       return {
         connected: true,
-        responseTime: response.headers['x-response-time'] || 'unknown',
+        responseTime,
         timestamp: new Date().toISOString()
       };
     } catch (error) {

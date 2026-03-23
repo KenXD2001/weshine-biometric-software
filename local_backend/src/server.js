@@ -52,7 +52,7 @@ if (allowAll) {
 } else {
   const corsOrigins = process.env.CORS_ORIGINS 
     ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
-    : ['http://10.128.92.163:3030'];
+    : ['http://10.166.189.163:3030'];
 
   console.log('🔐 CORS Origins configured:', corsOrigins);
 

@@ -217,6 +217,11 @@ router.post('/submit-face-capture', async (req, res) => {
     // ASYNC: Send face data to cloud using new sync service
     (async () => {
       try {
+        // Update sync state with image path BEFORE attempting sync
+        syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'face', {
+          localPath: capturedImagePath
+        });
+        
         const candidateData = {
           hallTicket,
           id: candidate.id,
@@ -233,12 +238,13 @@ router.post('/submit-face-capture', async (req, res) => {
           faceData: faceData,
           thumbData: null,
           ISOTemplateBase64: null,
-          TemplateBase64: null
+          TemplateBase64: null,
+          localImagePath: capturedImagePath // Add image path for sync
         };
         
         await syncService.syncBiometricData(candidateData, 'face');
       } catch (syncError) {
-        logger.error('Face sync error:', syncError);
+        if (syncError) logger.error('Face sync error:', syncError);
       }
     })();
 
@@ -330,6 +336,11 @@ router.post('/submit-thumb-capture', async (req, res) => {
     // ASYNC: Send thumb data to cloud using new sync service
     (async () => {
       try {
+        // Update sync state with image path BEFORE attempting sync
+        syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'thumb', {
+          localPath: biometricImagePath
+        });
+        
         const candidateData = {
           hallTicket,
           id: candidate.id,
@@ -346,7 +357,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
           faceData: null,
           thumbData: thumbData,
           ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
-          TemplateBase64: candidate.TemplateBase64 || null
+          TemplateBase64: candidate.TemplateBase64 || null,
+          localImagePath: biometricImagePath // Add image path for sync
         };
         
         await syncService.syncBiometricData(candidateData, 'thumb');

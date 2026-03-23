@@ -112,6 +112,26 @@ router.get('/connection-test', async (req, res) => {
   }
 });
 
+// POST /api/sync/manual - Trigger manual sync of all pending records
+router.post('/manual', async (req, res) => {
+  try {
+    logger.info('Manual sync triggered via API', { ip: req.ip });
+    const results = await syncService.syncAllPending();
+    res.json({
+      successful: true,
+      message: 'Manual sync completed',
+      data: results
+    });
+  } catch (error) {
+    logger.error('Manual sync error', { error: error.message, stack: error.stack });
+    res.status(500).json({
+      successful: false,
+      message: 'Manual sync failed',
+      error: error.message
+    });
+  }
+});
+
 // GET /api/sync/scheduler-status - Get scheduler status
 router.get('/scheduler-status', (req, res) => {
   try {

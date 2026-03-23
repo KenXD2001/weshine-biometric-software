@@ -109,3 +109,35 @@ test.json
 # package-lock.json
 # local_frontend/package-lock.json
 # local_backend/package-lock.json
+
+# PDF exports and generated files
+*.pdf
+biometric_candidates_export_*.pdf
+
+# Candidate data files (keep structure, ignore content)
+candidate-data/*.json
+!candidate-data/.gitkeep
+
+# Electron specific
+electron/dist/
+electron/build/
+
+# Scripts output
+scripts/output/
+scripts/dist/
+
+# Development files
+generate-pdf.js
+debug-token.js
+
+# Yarn lock (if using npm)
+yarn.lock
+local_frontend/yarn.lock
+local_backend/yarn.lock
+
+# Temporary files
+test-*
+tmp/
+temp/
+*.tmp
+*~
