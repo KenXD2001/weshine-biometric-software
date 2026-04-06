@@ -2,14 +2,15 @@ const fs = require('fs').promises;
 const path = require('path');
 const logger = require('../config/logger');
 
-
-// Use Electron's userData directory for all runtime files
-const USER_DATA_PATH = process.env.USER_DATA_PATH || path.join(__dirname, '../../user_data_fallback');
-const DATA_DIR = path.join(USER_DATA_PATH, 'data');
-const UPLOADS_DATA_DIR = path.join(USER_DATA_PATH, 'uploads', 'candidates-data');
+// Base directories for backend data
+const APP_ROOT = path.join(__dirname, '../../');
+const DATA_DIR = path.join(APP_ROOT, 'data');
+const UPLOADS_ROOT = path.join(APP_ROOT, 'uploads');
+const UPLOADS_DATA_DIR = path.join(UPLOADS_ROOT, 'candidates-data');
+const CANDIDATES_DIR = path.join(DATA_DIR, 'candidates-data');
 const CANDIDATES_FILE = path.join(DATA_DIR, 'candidates.json');
 const CENTRE_INFO_FILE = path.join(DATA_DIR, 'centreInfo.json');
-const CANDIDATES_BIOMETRIC_FILE = path.join(UPLOADS_DATA_DIR, 'candidates_biometric.json');
+const CANDIDATES_BIOMETRIC_FILE = path.join(DATA_DIR, 'candidate_biometric_details.json');
 
 /**
  * Ensure data and uploads directories exist
@@ -17,6 +18,7 @@ const CANDIDATES_BIOMETRIC_FILE = path.join(UPLOADS_DATA_DIR, 'candidates_biomet
 async function ensureDataDir() {
   try {
     await fs.mkdir(DATA_DIR, { recursive: true });
+    await fs.mkdir(CANDIDATES_DIR, { recursive: true });
     await fs.mkdir(UPLOADS_DATA_DIR, { recursive: true });
   } catch (error) {
     logger.error('Failed to create data/uploads directory', { error: error.message });
@@ -50,6 +52,9 @@ async function saveCandidates(candidates) {
       liveImagePath: c.liveImagePath,
       capturedImagePath: c.capturedImagePath,
       biometricImagePath: c.biometricImagePath,
+      // Essential Template Fields Only
+      ISOTemplateBase64: c.ISOTemplateBase64 || null,
+      TemplateBase64: c.TemplateBase64 || null,
       // Centre details
       centreCode: c.centreCode,
       centreName: c.centreName,

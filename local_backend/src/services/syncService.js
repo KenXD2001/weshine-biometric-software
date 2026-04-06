@@ -82,15 +82,33 @@ class SyncService {
 
       // Prepare image file - use existing saved image path first
       let imageFilePath = null;
-      if (candidateData.localImagePath && fs.existsSync(candidateData.localImagePath)) {
-        // Use the already saved image file from capture time
-        imageFilePath = candidateData.localImagePath;
-        logger.debug('Using existing image file', {
-          hallTicket: candidateData.hallTicket,
-          biometricType,
-          imagePath: imageFilePath
-        });
-      } else if (candidateData.faceData && biometricType === 'face') {
+      if (candidateData.localImagePath) {
+        if (fs.existsSync(candidateData.localImagePath)) {
+          imageFilePath = candidateData.localImagePath;
+        } else {
+          const cleanedPath = candidateData.localImagePath.replace(/^\/+/, '');
+          const resolvedDataPath = path.join(__dirname, '../../', cleanedPath);
+          if (fs.existsSync(resolvedDataPath)) {
+            imageFilePath = resolvedDataPath;
+          }
+        }
+
+        if (imageFilePath) {
+          logger.debug('Using existing image file', {
+            hallTicket: candidateData.hallTicket,
+            biometricType,
+            imagePath: imageFilePath
+          });
+        } else {
+          logger.debug('Existing local image path not found, falling back to base64', {
+            hallTicket: candidateData.hallTicket,
+            biometricType,
+            attemptedPath: candidateData.localImagePath
+          });
+        }
+      }
+
+      if (!imageFilePath && candidateData.faceData && biometricType === 'face') {
         // Fallback: create image from base64 data
         imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateData.hallTicket);
         logger.debug('Created image file from base64', {
@@ -240,9 +258,19 @@ class SyncService {
     this.syncInProgress = true;
     // Use pending items for retries so we attempt items that failed due to transient errors
     const pendingItems = this.syncStateManager.getPendingSync();
-    logger.info('Starting retry of pending failed syncs', {
-      totalPending: pendingItems.length
-    });
+    if (pendingItems.length === 0) {
+      this.syncInProgress = false;
+      // No logs for idling cycles
+      return {
+        retried: 0,
+        successful: 0,
+        failed: 0,
+        errors: []
+      };
+    }
+
+    // logger.info('Starting retry of pending failed syncs', { totalPending: pendingItems.length });
+    // logger.debug('Starting retry of pending failed syncs', { totalPending: pendingItems.length });
 
     const results = {
       retried: 0,
@@ -312,7 +340,8 @@ class SyncService {
 
     this.syncInProgress = false;
 
-    logger.info('Retry process completed', results);
+    // logger.info('Retry process completed', results);
+    logger.debug('Retry process completed', results);
     return results;
   }
 
@@ -364,10 +393,15 @@ class SyncService {
 
     this.syncInProgress = true;
     const pendingItems = this.syncStateManager.getPendingSync();
-    
-    logger.info('Starting sync of all pending items', {
-      totalPending: pendingItems.length
-    });
+
+    if (pendingItems.length === 0) {
+      this.syncInProgress = false;
+      // No logs for idle cycles
+      return [];
+    }
+
+    // logger.info('Starting sync of all pending items', { totalPending: pendingItems.length });
+    // logger.debug('Starting sync of all pending items', { totalPending: pendingItems.length });
 
     const results = [];
 
@@ -391,7 +425,12 @@ class SyncService {
 
     this.syncInProgress = false;
 
-    logger.info('Pending sync completed', {
+    // logger.info('Pending sync completed', {
+    //   totalProcessed: results.length,
+    //   successful: results.filter(r => r.result.success).length,
+    //   failed: results.filter(r => !r.result.success).length
+    // });
+    logger.debug('Pending sync completed', {
       totalProcessed: results.length,
       successful: results.filter(r => r.result.success).length,
       failed: results.filter(r => !r.result.success).length
@@ -427,6 +466,83 @@ class SyncService {
         error: error.message,
         timestamp: new Date().toISOString()
       };
+    }
+  }
+
+  // Fetch biometric records from cloud backend for the given hall tickets
+  async fetchCloudBiometricRecords(hallTickets) {
+    const requestId = `fetch_cloud_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const startTime = Date.now();
+    
+    if (!Array.isArray(hallTickets) || hallTickets.length === 0) {
+      logger.warn('Empty hall tickets array for cloud fetch', {
+        requestId,
+        hallTickets,
+        reason: 'Invalid input'
+      });
+      
+      return {
+        success: true,
+        totalRequested: 0,
+        foundCount: 0,
+        records: []
+      };
+    }
+
+    try {
+      logger.info('Fetching biometric records from cloud', {
+        requestId,
+        totalRequested: hallTickets.length,
+        hallTickets,
+        cloudBackendUrl: this.cloudBackendUrl,
+        timestamp: new Date().toISOString()
+      });
+
+      const response = await axios.post(
+        `${this.cloudBackendUrl}/api/sync/biometric-records`,
+        { 
+          hallTickets,
+          localBackendId: this.syncStateManager.localBackendId
+        },
+        {
+          timeout: 30000,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }
+      );
+
+      const processingTime = Date.now() - startTime;
+      const responseData = response.data;
+
+      logger.info('Cloud biometric records fetched successfully', {
+        requestId,
+        totalRequested: hallTickets.length,
+        totalFound: responseData.foundCount || 0,
+        faceCount: responseData.faceCount || 0,
+        thumbCount: responseData.thumbCount || 0,
+        templateCount: responseData.templateCount || 0,
+        processingTime: `${processingTime}ms`,
+        cloudProcessingTime: responseData.processingTime || 'N/A',
+        timestamp: new Date().toISOString()
+      });
+
+      return responseData;
+    } catch (error) {
+      const processingTime = Date.now() - startTime;
+      const errorMessage = error.response?.data?.error || error.message;
+      
+      logger.error('Failed to fetch biometric records from cloud', {
+        requestId,
+        totalRequested: hallTickets.length,
+        hallTickets,
+        error: errorMessage,
+        errorCode: error.response?.status || 'NO_CODE',
+        processingTime: `${processingTime}ms`,
+        timestamp: new Date().toISOString()
+      });
+      
+      throw new Error(`Failed to fetch biometric records from cloud: ${errorMessage}`);
     }
   }
 }

@@ -1,15 +1,18 @@
-import { defineConfig } from "vite";
-import react from "@vitejs/plugin-react-swc";
+import { defineConfig, loadEnv } from 'vite'
+import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react()],
-  base: "/",
-  server: {
-    host: '0.0.0.0', // Allow external access
-    port: 3030, // Frontend now runs on port 3030
-  },
-  build: {
-    chunkSizeWarningLimit: 3000,
-  },
-});
+// https://vite.dev/config/
+export default defineConfig(({ mode }) => {
+  // Load env file based on `mode` in the current working directory.
+  // Set the third parameter to '' to load from .env files by default.
+  const env = loadEnv(mode, process.cwd(), '')
+  
+  return {
+    plugins: [react(), tailwindcss()],
+    server: {
+      port: parseInt(env.PORT) || 3030,
+      host: env.HOST || true
+    }
+  }
+})

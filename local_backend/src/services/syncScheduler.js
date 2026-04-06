@@ -75,7 +75,7 @@ class SyncScheduler {
       if (!this.isRunning) return;
 
       try {
-        logger.debug('Running periodic sync check');
+        // logger.debug('Running periodic sync check');
         const results = await this.syncService.syncAllPending();
         
         if (results.length > 0) {
@@ -93,7 +93,7 @@ class SyncScheduler {
       }
     }, this.syncIntervalMs);
 
-    logger.debug('Periodic sync scheduled', { interval: this.syncIntervalMs });
+    // logger.debug('Periodic sync scheduled', { interval: this.syncIntervalMs });
   }
 
   // Start retry mechanism for failed items
@@ -102,7 +102,7 @@ class SyncScheduler {
       if (!this.isRunning) return;
 
       try {
-        logger.debug('Running retry mechanism');
+        // logger.debug('Running retry mechanism');
         const results = await this.syncService.retryFailedSyncs();
         
         if (results.retried > 0) {
@@ -113,7 +113,7 @@ class SyncScheduler {
       }
     }, this.retryIntervalMs);
 
-    logger.debug('Retry mechanism scheduled', { interval: this.retryIntervalMs });
+    // logger.debug('Retry mechanism scheduled', { interval: this.retryIntervalMs });
   }
 
   // Start connection health checks
@@ -131,10 +131,6 @@ class SyncScheduler {
             timestamp: connectionStatus.timestamp
           });
         } else {
-          logger.debug('Cloud connection healthy', {
-            responseTime: connectionStatus.responseTime
-          });
-          
           // Trigger sync on connection recovery
           if (!this.wasConnected) {
             this.wasConnected = true;
@@ -153,7 +149,7 @@ class SyncScheduler {
       }
     }, this.connectionCheckMs);
 
-    logger.debug('Connection checks scheduled', { interval: this.connectionCheckMs });
+    // logger.debug('Connection checks scheduled', { interval: this.connectionCheckMs });
   }
 
   // Trigger sync on connection recovery
@@ -163,7 +159,7 @@ class SyncScheduler {
       const pendingItems = this.syncService.syncStateManager.getPendingSync();
       
       if (pendingItems.length === 0) {
-        logger.debug('No pending items to sync on recovery');
+        // logger.debug('No pending items to sync on recovery');
         return;
       }
       
@@ -173,7 +169,7 @@ class SyncScheduler {
       
       // Check if sync is already in progress to avoid conflicts
       if (this.syncService.syncInProgress) {
-        logger.debug('Sync already in progress, recovery sync will be handled by existing process');
+        // logger.debug('Sync already in progress, recovery sync will be handled by existing process');
         return;
       }
       

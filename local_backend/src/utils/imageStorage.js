@@ -2,6 +2,10 @@ const fs = require('fs');
 const path = require('path');
 const logger = require('../config/logger');
 
+const APP_ROOT = path.join(__dirname, '../../');
+const DATA_DIR = path.join(APP_ROOT, 'data');
+const CANDIDATES_DATA_DIR = path.join(DATA_DIR, 'candidates-data');
+
 /**
  * Sanitize folder name by removing/replacing invalid characters for Windows/Unix
  * Windows doesn't allow: < > : " / \ | ? *
@@ -37,6 +41,14 @@ function createCandidateDirectory(hallTicket) {
     });
     throw error;
   }
+}
+
+/**
+ * Get candidate directory path
+ */
+function getCandidateDirectory(hallTicket) {
+  const sanitizedHallTicket = sanitizeFolderName(hallTicket);
+  return path.join(CANDIDATES_DATA_DIR, sanitizedHallTicket);
 }
 
 /**
@@ -84,19 +96,20 @@ function saveBase64Image(base64String, hallTicket, imageType, centreCode) {
     // Save image to disk
     fs.writeFileSync(filePath, imageBuffer);
     
-    // Return relative path from uploads folder (simplified structure)
+    // Return stable API path from data folder
     const sanitizedHallTicket = sanitizeFolderName(hallTicket);
     const relativePath = `candidates-data/${sanitizedHallTicket}/${filename}`;
+    const apiPath = `/data/${relativePath}`; // front-end loads from /data
     
     logger.info('Saved base64 image', {
       hallTicket: sanitizedHallTicket,
       imageType,
       filename,
       size: imageBuffer.length,
-      relativePath
+      dataPath: apiPath
     });
     
-    return relativePath;
+    return apiPath;
 
   } catch (error) {
     logger.error('Error saving base64 image', {
@@ -106,24 +119,6 @@ function saveBase64Image(base64String, hallTicket, imageType, centreCode) {
     });
     throw error;
   }
-}
-
-/**
- * Get candidate directory path
- */
-function getCandidateDirectory(hallTicket) {
-  // Use proper upload directory path like multer configuration
-  let uploadBaseDir;
-  if (process.env.NODE_ENV === 'production' && process.resourcesPath) {
-    // In packaged Electron, use resources/uploads (outside asar)
-    uploadBaseDir = path.join(process.resourcesPath, 'uploads');
-  } else {
-    // In dev, use project uploads folder
-    uploadBaseDir = path.join(__dirname, '../../uploads');
-  }
-  
-  const sanitizedHallTicket = sanitizeFolderName(hallTicket);
-  return path.join(uploadBaseDir, 'candidates-data', sanitizedHallTicket);
 }
 
 /**

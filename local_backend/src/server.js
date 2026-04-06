@@ -18,6 +18,22 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const PORT = process.env.PORT || 3030;
 const HOST = process.env.HOST || '127.0.0.1';
 
+const getISTDateTime = () => {
+  const now = new Date();
+  const utcMillis = now.getTime() + (now.getTimezoneOffset() * 60000);
+  const istOffsetMillis = 5.5 * 60 * 60000;
+  const istTime = new Date(utcMillis + istOffsetMillis);
+
+  const yyyy = istTime.getFullYear();
+  const mm = String(istTime.getMonth() + 1).padStart(2, '0');
+  const dd = String(istTime.getDate()).padStart(2, '0');
+  const hh = String(istTime.getHours()).padStart(2, '0');
+  const min = String(istTime.getMinutes()).padStart(2, '0');
+  const ss = String(istTime.getSeconds()).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+};
+
 // Security middleware with relaxed CSP for development
 app.use(helmet({
   contentSecurityPolicy: {
@@ -86,10 +102,13 @@ if (NODE_ENV === 'production' && process.resourcesPath) {
 }
 
 app.use('/uploads', express.static(uploadDir));
-// also allow API clients to fetch images via /api/upload/images prefix
+// also allow API clients to fetch images via /api/upload/images prefix (legacy)
 app.use('/api/upload/images', express.static(uploadDir));
+// Serve active application data (candidate images, metadata)
+app.use('/data', express.static(path.join(__dirname, '../data')));
 
-// Custom morgan middleware for logging
+// Custom morgan middleware for logging - commented out to reduce verbosity
+/*
 morgan.token('timestamp', () => {
   const now = new Date();
   return now.toISOString().replace('T', ' ').replace('Z', '');
@@ -107,13 +126,14 @@ app.use(morgan(':timestamp :method :url :status :response-time ms - :res[content
     }
   }
 }));
+*/
 
 // Health check endpoint
 app.get('/health', (req, res) => {
   logger.info('Health check requested', { ip: req.ip });
   res.status(200).json({
     status: 'OK',
-    timestamp: new Date().toISOString(),
+    timestamp: getISTDateTime(),
     uptime: process.uptime(),
     environment: process.env.NODE_ENV || 'development'
   });
@@ -132,7 +152,7 @@ app.get('/', (req, res) => {
     message: 'Digi Biometric Backend API',
     version: process.env.API_VERSION || 'v1',
     status: 'running',
-    timestamp: new Date().toISOString()
+    timestamp: getISTDateTime()
   });
 });
 
@@ -189,7 +209,7 @@ app.listen(PORT, HOST, () => {
 ║  Server running on: http://${HOST}:${PORT}                    ║
 ║  Environment: ${NODE_ENV.padEnd(47)} ║
 ║  Process ID: ${process.pid.toString().padEnd(49)} ║
-║  Start Time: ${new Date().toISOString().replace('T', ' ').replace('Z', '').padEnd(43)} ║
+║  Start Time: ${getISTDateTime().padEnd(43)} IST ║
 ║  Sync Scheduler: RUNNING                                        ║
 ╚══════════════════════════════════════════════════════════════╝
   `);

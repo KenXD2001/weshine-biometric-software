@@ -204,6 +204,7 @@ router.post('/submit-face-capture', async (req, res) => {
     // Update overall biometric status
     if (candidate.faceStatus === 'Completed' && candidate.thumbStatus === 'Completed') {
       candidate.biometricStatus = 'Completed';
+      candidate.submitTimestamp = candidate.submitTimestamp || new Date().toISOString();
     }
 
     // Save to disk (saves to all 3 JSON files)
@@ -211,7 +212,8 @@ router.post('/submit-face-capture', async (req, res) => {
 
     logger.success('Face capture submitted successfully', { 
       hallTicket,
-      candidateId: candidate.id
+      candidateId: candidate.id,
+      submitTimestamp: candidate.submitTimestamp
     });
 
     // ASYNC: Send face data to cloud using new sync service
@@ -274,8 +276,11 @@ router.post('/submit-thumb-capture', async (req, res) => {
     logger.info('Submitting thumb capture', { 
       hallTicket,
       hasISOTemplate: !!ISOTemplateBase64,
+      isoTemplateLength: ISOTemplateBase64 ? ISOTemplateBase64.length : 0,
       hasTemplate: !!TemplateBase64,
+      templateLength: TemplateBase64 ? TemplateBase64.length : 0,
       hasSecugenResponse: !!secugenApiResponse,
+      secugenResponseKeys: secugenApiResponse ? Object.keys(secugenApiResponse) : [],
       ip: req.ip 
     });
 
@@ -314,6 +319,15 @@ router.post('/submit-thumb-capture', async (req, res) => {
       candidate.ISOTemplateBase64 = ISOTemplateBase64 || null;
       candidate.TemplateBase64 = TemplateBase64 || null;
     }
+
+    logger.info('Assigned thumb biometric templates', {
+      hallTicket,
+      candidateId: candidate.id,
+      ISOTemplateBase64Exists: !!candidate.ISOTemplateBase64,
+      TemplateBase64Exists: !!candidate.TemplateBase64,
+      ISOTemplateLength: candidate.ISOTemplateBase64 ? candidate.ISOTemplateBase64.length : 0,
+      TemplateLength: candidate.TemplateBase64 ? candidate.TemplateBase64.length : 0
+    });
     
     // Use provided timestamp if available, else fallback
     candidate.thumbCaptureTimestamp = req.body.captureTimestamp || new Date().toISOString();
@@ -321,6 +335,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
     // Update overall biometric status
     if (candidate.faceStatus === 'Completed' && candidate.thumbStatus === 'Completed') {
       candidate.biometricStatus = 'Completed';
+      candidate.submitTimestamp = candidate.submitTimestamp || new Date().toISOString();
     }
 
     // Save to disk (saves to all 3 JSON files)
@@ -330,7 +345,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
       hallTicket,
       candidateId: candidate.id,
       hasSecugenResponse: !!secugenApiResponse,
-      responseErrorCode: secugenApiResponse?.ErrorCode
+      responseErrorCode: secugenApiResponse?.ErrorCode,
+      submitTimestamp: candidate.submitTimestamp
     });
 
     // ASYNC: Send thumb data to cloud using new sync service

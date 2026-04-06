@@ -56,7 +56,18 @@ class Logger {
 
   getTimestamp() {
     const now = new Date();
-    return now.toISOString().replace('T', ' ').replace('Z', '');
+    const utcMillis = now.getTime() + (now.getTimezoneOffset() * 60000);
+    const istOffsetMillis = 5.5 * 60 * 60000;
+    const istTime = new Date(utcMillis + istOffsetMillis);
+
+    const yyyy = istTime.getFullYear();
+    const mm = String(istTime.getMonth() + 1).padStart(2, '0');
+    const dd = String(istTime.getDate()).padStart(2, '0');
+    const hh = String(istTime.getHours()).padStart(2, '0');
+    const min = String(istTime.getMinutes()).padStart(2, '0');
+    const ss = String(istTime.getSeconds()).padStart(2, '0');
+
+    return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
   }
 
   formatMessage(level, message, meta = {}) {

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../config/logger');
 const dataStore = require('../utils/dataStore');
+const pdfExporter = require('../services/pdfExporter');
 const path = require('path');
 const fs = require('fs');
 
@@ -11,6 +12,53 @@ let centreInfo = {
   code: '',
   name: '',
   examSlot: ''
+};
+
+const sanitizeCandidate = (candidate) => {
+  if (!candidate || typeof candidate !== 'object') return candidate;
+  const { faceCaptureData, thumbCaptureData, ...rest } = candidate;
+  return rest;
+};
+
+const sanitizeCandidates = (candidateList) => {
+  if (!Array.isArray(candidateList)) return [];
+  return candidateList.map(sanitizeCandidate);
+};
+
+const getISTDateTime = () => {
+  const now = new Date();
+  const utcMillis = now.getTime() + now.getTimezoneOffset() * 60000;
+  const istOffsetMillis = 5.5 * 60 * 60000;
+  const istTime = new Date(utcMillis + istOffsetMillis);
+
+  const yyyy = istTime.getFullYear();
+  const mm = String(istTime.getMonth() + 1).padStart(2, '0');
+  const dd = String(istTime.getDate()).padStart(2, '0');
+  const hh = String(istTime.getHours()).padStart(2, '0');
+  const min = String(istTime.getMinutes()).padStart(2, '0');
+  const ss = String(istTime.getSeconds()).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+};
+
+const convertUtcToIST = (utcTimestamp) => {
+  if (!utcTimestamp) return '-';
+
+  const date = new Date(utcTimestamp);
+  if (Number.isNaN(date.getTime())) return utcTimestamp;
+
+  const utcMillis = date.getTime();
+  const istOffsetMillis = 5.5 * 60 * 60000;
+  const istDate = new Date(utcMillis + istOffsetMillis);
+
+  const yyyy = istDate.getFullYear();
+  const mm = String(istDate.getMonth() + 1).padStart(2, '0');
+  const dd = String(istDate.getDate()).padStart(2, '0');
+  const hh = String(istDate.getHours()).padStart(2, '0');
+  const min = String(istDate.getMinutes()).padStart(2, '0');
+  const ss = String(istDate.getSeconds()).padStart(2, '0');
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
 };
 
 // Initialize data from disk on module load
@@ -63,7 +111,7 @@ router.get('/all', (req, res) => {
 
     // Try to get biometric data if available (candidates_biometric.json)
     try {
-      const biometricFilePath = path.join(__dirname, '../../uploads/candidates-data/candidates_biometric.json');
+      const biometricFilePath = path.join(__dirname, '../../data/candidate_biometric_details.json');
       if (fs.existsSync(biometricFilePath)) {
         const fileContent = fs.readFileSync(biometricFilePath, 'utf8');
         const biometricData = JSON.parse(fileContent);
@@ -95,7 +143,7 @@ router.get('/all', (req, res) => {
 
     res.json({
       successful: true,
-      data: candidate
+      data: sanitizeCandidate(candidate)
     });
 
   } catch (error) {
@@ -135,7 +183,7 @@ router.get('/all/filters', (req, res) => {
 
     res.json({
       successful: true,
-      data: filteredCandidates,
+      data: sanitizeCandidates(filteredCandidates),
       count: filteredCandidates.length
     });
 
@@ -152,23 +200,146 @@ router.get('/all/filters', (req, res) => {
   }
 });
 
-// Get candidate count by exam and slot
+// Helper to render HTML rows in export template
+const resolveImageUrl = (imgPath) => {
+  if (!imgPath) return '';
+  if (typeof imgPath !== 'string') return '';
+
+  const trimmed = imgPath.trim();
+  if (!trimmed) return '';
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+
+  const serverHost = process.env.EXPORT_PDF_HOST || `http://127.0.0.1:${process.env.PORT || 8080}`;
+  if (trimmed.startsWith('/')) {
+    return `${serverHost}${trimmed}`;
+  }
+
+  return `${serverHost}/${trimmed}`;
+};
+
+const imgTag = (url) => {
+  if (!url) return '-';
+  return `<img src="${url}" alt="img" style="max-width:80px; max-height:60px; object-fit:contain;" />`;
+};
+
+const buildCandidateTableRows = (candidateList) => {
+  return candidateList.map(c => {
+    const signatureImg = imgTag(resolveImageUrl(c.uploadedImagePath || c.liveImagePath));
+    const photoImg = imgTag(resolveImageUrl(c.liveImagePath || c.uploadedImagePath));
+    const capturedPhotoImg = imgTag(resolveImageUrl(c.capturedImagePath));
+    const capturedThumbImg = imgTag(resolveImageUrl(c.biometricImagePath));
+
+    return `
+    <tr>
+      <td class="nowrap">${c.hallTicket || '-'}</td>
+      <td>${c.candidateName || '-'}</td>
+      <td>${c.emailId || '-'}</td>
+      <td>${c.gender || '-'}</td>
+      <td>${signatureImg}</td>
+      <td>${photoImg}</td>
+      <td>${capturedPhotoImg}</td>
+      <td>${capturedThumbImg}</td>
+      <td>${c.biometricStatus || '-'}</td>
+      <td class="nowrap small">
+        ${convertUtcToIST(c.imageCaptureTimestamp)}<br/>
+        ${convertUtcToIST(c.thumbCaptureTimestamp)}<br/>
+        ${convertUtcToIST(c.submitTimestamp)}
+      </td>
+    </tr>
+  `;
+  }).join('');
+};
+
+// Export PDF endpoint
+router.get('/export/pdf', async (req, res) => {
+  try {
+    let filteredCandidates = [...candidates];
+    const { hallTicket, candidateName, status } = req.query;
+
+    if (hallTicket) {
+      filteredCandidates = filteredCandidates.filter(c => c.hallTicket.toLowerCase().includes(String(hallTicket).toLowerCase()));
+    }
+    if (candidateName) {
+      filteredCandidates = filteredCandidates.filter(c => c.candidateName.toLowerCase().includes(String(candidateName).toLowerCase()));
+    }
+    if (status && status !== 'all') {
+      filteredCandidates = filteredCandidates.filter(c => String(c.biometricStatus || '').toLowerCase() === String(status).toLowerCase());
+    }
+
+    const pdfBuffer = await pdfExporter.createBiometricPdf(filteredCandidates);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'attachment; filename="biometric-candidate-list.pdf"');
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('PDF export error details:', error);
+    logger.error('Error generating PDF export', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip
+    });
+    res.status(500).send(`PDF generation failed: ${error.message}`);
+  }
+});
+
+// Export diagnostic biometric file JSON from data directory
+router.get('/export/json', async (req, res) => {
+  try {
+    const biometricFilePath = path.join(__dirname, '../../data/candidate_biometric_details.json');
+    if (!fs.existsSync(biometricFilePath)) {
+      logger.warn('JSON export requested but file not found', { file: biometricFilePath });
+      return res.status(404).json({ successful: false, message: 'Biometric JSON file not found' });
+    }
+
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', 'attachment; filename="candidate_biometric_details.json"');
+    const stream = fs.createReadStream(biometricFilePath);
+    stream.pipe(res);
+
+    stream.on('end', () => {
+      logger.success('Biometric JSON exported', { file: biometricFilePath, ip: req.ip });
+    });
+
+    stream.on('error', (streamError) => {
+      logger.error('Error streaming biometric JSON file', { error: streamError.message, ip: req.ip });
+      res.status(500).end('Failed to export biometric JSON file');
+    });
+  } catch (error) {
+    logger.error('Error exporting biometric JSON', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip
+    });
+    res.status(500).json({ successful: false, message: 'Internal server error' });
+  }
+});
+
+// Get candidate count by centre code
 router.get('/counts', (req, res) => {
   try {
-    const { examId, examSlot } = req.query;
+    const { centreCode, examId, examSlot } = req.query;
     
-    logger.info('Fetching candidate counts', { examId, examSlot, ip: req.ip });
+    logger.info('Fetching candidate counts', { centreCode, examId, examSlot, ip: req.ip });
 
-    // Mock count based on exam and slot
+    // Filter candidates by centre code if provided
+    let filteredCandidates = candidates;
+    if (centreCode) {
+      filteredCandidates = candidates.filter(c => c.centreCode === centreCode);
+    }
+
+    // Mock count based on exam and slot (or centre)
     const candidateCounts = {
-      total: candidates.length,
-      completed: candidates.filter(c => c.biometricStatus === 'Completed').length,
-      pending: candidates.filter(c => c.biometricStatus === 'Pending').length
+      total: filteredCandidates.length,
+      completed: filteredCandidates.filter(c => c.biometricStatus === 'Completed').length,
+      pending: filteredCandidates.filter(c => c.biometricStatus === 'Pending').length
     };
 
     res.json({
       successful: true,
-      candidateCounts: candidateCounts.total
+      candidateCounts: candidateCounts
     });
 
   } catch (error) {
@@ -280,7 +451,7 @@ router.get('/biometric-data', (req, res) => {
   try {
     logger.info('Downloading biometric data JSON', { ip: req.ip });
     
-const biometricFilePath = path.join(__dirname, '../../uploads/candidates-data/candidates_biometric.json');
+const biometricFilePath = path.join(__dirname, '../../data/candidate_biometric_details.json');
     
     if (!fs.existsSync(biometricFilePath)) {
       // If file doesn't exist, return current candidates data
@@ -346,6 +517,35 @@ module.exports = {
   
   // Manual save functions (for batch operations)
   saveToDisk: async () => {
+    await dataStore.saveCandidates(candidates);
+    await dataStore.saveCentreInfo(centreInfo, candidates);
+    await dataStore.saveCandidatesBiometric(candidates);
+  },
+
+  // Replace full candidate array in one operation
+  setCandidates: async (newCandidates) => {
+    candidates.length = 0;
+    if (Array.isArray(newCandidates)) {
+      candidates.push(...newCandidates);
+    }
+    await dataStore.saveCandidates(candidates);
+    await dataStore.saveCentreInfo(centreInfo, candidates);
+    await dataStore.saveCandidatesBiometric(candidates);
+  },
+
+  // Keep only candidates that exist in provided key set (hallTicket or id) for merge semantics
+  retainCandidatesByKeySet: async (keySet) => {
+    if (!keySet || !(keySet instanceof Set)) {
+      return;
+    }
+
+    const remainingCandidates = candidates.filter((c) => {
+      const candidateKey = (c.hallTicket || c.id || '').toString();
+      return keySet.has(candidateKey);
+    });
+
+    candidates.length = 0;
+    candidates.push(...remainingCandidates);
     await dataStore.saveCandidates(candidates);
     await dataStore.saveCentreInfo(centreInfo, candidates);
     await dataStore.saveCandidatesBiometric(candidates);

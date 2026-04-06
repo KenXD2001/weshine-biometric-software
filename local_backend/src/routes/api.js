@@ -24,6 +24,8 @@ router.use((req, res, next) => {
 router.use('/user', authRoutes);
 router.use('/auth', authRoutes); // Also support /api/auth for cloud backend compatibility
 router.use('/candidate-details', candidatesModule.router);
+router.use('/candidates', candidatesModule.router); // Backward compatibility with old client path
+router.use('/candidate-counts', candidatesModule.router); // Add counts route
 router.use('/biometric-details', biometricRoutes);
 router.use('/lab-seating', labRoutes);
 router.use('/lab-details', labRoutes);

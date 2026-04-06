@@ -4,6 +4,7 @@ const router = express.Router();
 const logger = require('../config/logger');
 const path = require('path');
 const fs = require('fs');
+const imageStorage = require('../utils/imageStorage');
 const AdmZip = require('adm-zip');
 
 // CSV parser with proper quoted field handling
@@ -70,16 +71,30 @@ function parseCSV(csvContent) {
       hasFullName: !!(candidate['Full Name'] || candidate['fullName'])
     });
     
+    // Normalize common CSV fields to the internal expected keys
+    if (candidate['Email']) {
+      candidate.email = candidate['Email'];
+    }
+    if (candidate['Email ID']) {
+      candidate.emailId = candidate['Email ID'];
+    }
+    if (candidate['applicationNumber']) {
+      candidate.applicationNumber = candidate['applicationNumber'];
+    }
+    if (candidate['Application Number']) {
+      candidate.applicationNumber = candidate['Application Number'];
+    }
+    if (candidate['Full Name']) {
+      candidate.fullName = candidate['Full Name'];
+    }
+    if (candidate['candidateName']) {
+      candidate.candidateName = candidate['candidateName'];
+    }
+
     // Check if candidate has required fields - support both formats
-    const appNumber = candidate['Application Number'] || 
-                     candidate['applicationNumber'] || 
-                     candidate['AppNumber'] || 
-                     candidate['app_number'];
-    const fullName = candidate['Full Name'] || 
-                    candidate['fullName'] || 
-                    candidate['FullName'] || 
-                    candidate['full_name'];
-    
+    const appNumber = candidate.applicationNumber || candidate.AppNumber || candidate.app_number;
+    const fullName = candidate.fullName || candidate.FullName || candidate.full_name;
+
     if (appNumber || fullName) {
       candidates.push(candidate);
     }
@@ -152,13 +167,15 @@ router.post('/file', upload.single('file'), (req, res) => {
       hallTicket: req.query.hallTicket,
       matchPercentage: req.query.matchPercentage
     });
-    const { fileType, hallTicket, matchPercentage } = req.query;
+    const { fileType, hallTicket, matchPercentage, uploadMode = 'replace' } = req.query;
+    const sanitizedUploadMode = (uploadMode || 'replace').toString().toLowerCase();
     const file = req.file;
 
     logger.info('File upload request', {
       fileType,
       hallTicket,
       matchPercentage,
+      uploadMode: sanitizedUploadMode,
       fileName: file?.originalname,
       fileSize: file?.size,
       ip: req.ip
@@ -192,7 +209,7 @@ router.post('/file', upload.single('file'), (req, res) => {
 
     // Process based on file type
     if (fileType === 'ZIP') {
-      return processCandidateZIP(req, res, file);
+      return processCandidateZIP(req, res, file, sanitizedUploadMode);
     } else if (fileType === 'IMAGE') {
       return processBiometricImage(req, res, file, hallTicket, matchPercentage);
     } else {
@@ -227,14 +244,36 @@ router.post('/file', upload.single('file'), (req, res) => {
 });
 
 // Process candidate data file (JSON/CSV)
-async function processCandidateFile(req, res, file) {
+async function cleanupExistingCandidateData() {
+  const dataStore = require('../utils/dataStore');
+
+  try {
+    // Clear candidate JSON state
+    await dataStore.clearAllData();
+
+    // Delete data/candidates-data folder content to remove old images
+    const dataCandidatesDir = path.join(__dirname, '../../data/candidates-data');
+    if (fs.existsSync(dataCandidatesDir)) {
+      fs.rmSync(dataCandidatesDir, { recursive: true, force: true });
+    }
+  } catch (err) {
+    logger.warn('Failed to cleanup existing candidate data', { error: err.message });
+  }
+}
+
+async function processCandidateFile(req, res, file, uploadMode = 'replace') {
   try {
     logger.info('Processing candidate data file', {
       fileName: file.originalname,
       fileSize: file.size,
       fileType: file.mimetype,
+      uploadMode,
       ip: req.ip
     });
+
+    if (uploadMode === 'replace') {
+      await cleanupExistingCandidateData();
+    }
 
     // Read file content
     const fileContent = fs.readFileSync(file.path, 'utf8');
@@ -247,9 +286,16 @@ async function processCandidateFile(req, res, file) {
     
     // Transform the candidate data to match our internal format
     const candidatesModule = require('./candidates');
-    
-    // Clear existing candidates before adding new ones
-    candidatesModule.clearCandidates();
+    const existingCandidates = candidatesModule.getCandidates() || [];
+    const existingCandidateMap = new Map(existingCandidates.map(c => [
+      (c.hallTicket || c.id || '').toString(),
+      c
+    ]));
+    const uploadedCandidateKeys = new Set();
+
+    if (uploadMode === 'replace') {
+      candidatesModule.clearCandidates();
+    }
     
     const failedCandidates = [];
     let successCount = 0;
@@ -362,6 +408,26 @@ async function processCandidateFile(req, res, file) {
         const candidateId = candidate.candidateId || candidate.applicationNumber;
         const candidateName = candidate.candidateName || candidate.fullName || '';
 
+        if (!candidateId || !candidateName) {
+          throw new Error('Missing candidateId/applicationNumber or candidateName/fullName');
+        }
+
+        const hallTicket = candidate.hallTicketId || candidate.hallTicket || candidate.applicationNumber || candidate.candidateId || candidateId;
+        const candidateKey = (hallTicket || candidateId).toString();
+        uploadedCandidateKeys.add(candidateKey);
+
+        // Merge mode: skip candidate if already exists (preserve biometric history)
+        if (uploadMode === 'merge' && existingCandidateMap.has(candidateKey)) {
+          const existingCandidate = existingCandidateMap.get(candidateKey);
+          logger.info('Skipping existing candidate in merge mode', {
+            candidateId: existingCandidate.id,
+            hallTicket: existingCandidate.hallTicket
+          });
+          return;
+        }
+
+        // Extract images from documentDetails array (if present)
+
         // Validate required fields
         if (!candidateId || !candidateName) {
           throw new Error('Missing candidateId/applicationNumber or candidateName/fullName');
@@ -382,7 +448,7 @@ async function processCandidateFile(req, res, file) {
         let uploadedImagePath = null;
         let liveImagePath = null;
         
-        const hallTicket = candidate.hallTicketId || candidate.hallTicket || candidateId;
+        // hallTicket is already computed and used for candidateKey selection.
         
         if (photoDoc?.fileName) {
           try {
@@ -409,11 +475,12 @@ async function processCandidateFile(req, res, file) {
         }
         
         // Create candidate object with face and thumb status tracking
+        const normalizedEmail = candidate.emailId || candidate.email || candidate.Email || candidate.EmailId || candidate.emailid;
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
           candidateName: candidateName,
-          emailId: candidate.emailId || candidate.email || `${candidateName.toLowerCase().replace(/\s+/g, '')}@example.com`,
+          emailId: normalizedEmail || `${candidateName.toLowerCase().replace(/\s+/g, '')}@example.com`,
           gender: (candidate.gender || candidate.Gender || 'other').toLowerCase(),
           image: photoDoc?.fileName || '',
           liveImage: livePhotoDoc?.fileName || '',
@@ -430,9 +497,9 @@ async function processCandidateFile(req, res, file) {
           syncedAt: null,
           syncError: null,
           cloudId: null,
-          // Image file paths (relative to uploads folder)
-          uploadedImagePath: uploadedImagePath,
-          liveImagePath: liveImagePath,
+          // Image file paths (data folder API path)
+          uploadedImagePath: uploadedImagePath || '',
+          liveImagePath: liveImagePath || '',
           capturedImagePath: null,
           biometricImagePath: null,
           // Centre details
@@ -464,6 +531,11 @@ async function processCandidateFile(req, res, file) {
         failedCandidates.push(`Candidate ${index + 1}: ${err.message}`);
       }
     });
+
+    // For merge mode, remove candidates no longer present in upload set
+    if (uploadMode === 'merge') {
+      await candidatesModule.retainCandidatesByKeySet(uploadedCandidateKeys);
+    }
 
     logger.success('Candidate data file processed', {
       fileName: file.originalname,
@@ -529,7 +601,7 @@ async function processCandidateFile(req, res, file) {
 }
 
 // Process candidate ZIP file
-async function processCandidateZIP(req, res, file) {
+async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
   // Use proper upload directory path like multer configuration
   let uploadBaseDir;
   if (process.env.NODE_ENV === 'production' && process.resourcesPath) {
@@ -540,7 +612,17 @@ async function processCandidateZIP(req, res, file) {
     uploadBaseDir = path.join(__dirname, '../../uploads');
   }
   
-  const extractionDir = path.join(uploadBaseDir, 'temp', Date.now().toString());
+  const extractionDir = path.join(uploadBaseDir, 'candidates-data', 'extracted');
+
+  if (uploadMode === 'replace') {
+    // Clean application data before reimporting
+    const dataStore = require('../utils/dataStore');
+    await dataStore.clearAllData();
+    const dataCandidatesDir = path.join(__dirname, '../../data/candidates-data');
+    if (fs.existsSync(dataCandidatesDir)) {
+      fs.rmSync(dataCandidatesDir, { recursive: true, force: true });
+    }
+  }
   
   try {
     logger.info('Processing candidate ZIP file', {
@@ -550,6 +632,19 @@ async function processCandidateZIP(req, res, file) {
       extractionDir,
       ip: req.ip
     });
+
+    // Clean old extracted data if present
+    if (fs.existsSync(extractionDir)) {
+      const oldItems = fs.readdirSync(extractionDir);
+      for (const item of oldItems) {
+        const itemPath = path.join(extractionDir, item);
+        if (fs.statSync(itemPath).isDirectory()) {
+          fs.rmSync(itemPath, { recursive: true, force: true });
+        } else {
+          fs.unlinkSync(itemPath);
+        }
+      }
+    }
 
     // Create extraction directory
     if (!fs.existsSync(extractionDir)) {
@@ -609,6 +704,22 @@ async function processCandidateZIP(req, res, file) {
       throw new Error('No CSV or JSON file found in the ZIP archive');
     }
 
+    // Copy candidate metafile (CSV/JSON) to uploads/candidates-data for raw audit
+    try {
+      const rawCandidateFileDir = path.join(uploadBaseDir, 'candidates-data');
+      if (!fs.existsSync(rawCandidateFileDir)) {
+        fs.mkdirSync(rawCandidateFileDir, { recursive: true });
+      }
+      const rawCandidateFileDest = path.join(rawCandidateFileDir, path.basename(candidateFile));
+      fs.copyFileSync(candidateFile, rawCandidateFileDest);
+      logger.info('Copied candidate data file to uploads candidates-data store', {
+        source: candidateFile,
+        destination: rawCandidateFileDest
+      });
+    } catch (copyErr) {
+      logger.warn('Failed to copy candidate data file to uploads directory', { error: copyErr.message });
+    }
+
     // Read the extracted file
     fileContent = fs.readFileSync(candidateFile, 'utf8');
     
@@ -620,8 +731,19 @@ async function processCandidateZIP(req, res, file) {
 
     // Process similar to processCandidateFile
     const candidatesModule = require('./candidates');
-    candidatesModule.clearCandidates();
-    
+    const existingCandidates = candidatesModule.getCandidates() || [];
+    const existingCandidateMap = new Map(existingCandidates.map(c => [
+      (c.hallTicket || c.id || '').toString(),
+      c
+    ]));
+
+    // merge-specific metadata
+    const uploadedCandidateKeys = new Set();
+
+    if (uploadMode === 'replace') {
+      candidatesModule.clearCandidates();
+    }
+
     const failedCandidates = [];
     let successCount = 0;
 
@@ -701,7 +823,7 @@ async function processCandidateZIP(req, res, file) {
     // Update centre info
     candidatesModule.setCentreInfo(centreInfo);
 
-    // Helper function to copy image from ZIP to uploads folder
+    // Helper function to copy image from ZIP to data folder
     function copyImageFromZIP(relativePath, extractionDir, candidateId, imageType) {
       try {
         if (!relativePath) return null;
@@ -713,18 +835,8 @@ async function processCandidateZIP(req, res, file) {
           return null;
         }
         
-        // Use proper upload directory path like multer configuration
-        let uploadBaseDir;
-        if (process.env.NODE_ENV === 'production' && process.resourcesPath) {
-          // In packaged Electron, use resources/uploads (outside asar)
-          uploadBaseDir = path.join(process.resourcesPath, 'uploads');
-        } else {
-          // In dev, use project uploads folder
-          uploadBaseDir = path.join(__dirname, '../../uploads');
-        }
-        
-        // Create destination directory (candidate folder only)
-        const destDir = path.join(uploadBaseDir, 'candidates-data', candidateId);
+        const appDataDir = path.join(__dirname, '../../data');
+        const destDir = path.join(appDataDir, 'candidates-data', candidateId);
         if (!fs.existsSync(destDir)) {
           fs.mkdirSync(destDir, { recursive: true });
         }
@@ -740,7 +852,7 @@ async function processCandidateZIP(req, res, file) {
         fs.copyFileSync(sourceFile, destFile);
         
         logger.info(`Image copied from ZIP: ${relativePath} → ${destFileName}`);
-        return `/api/upload/images/candidates-data/${candidateId}/${destFileName}`;
+        return `/data/candidates-data/${candidateId}/${destFileName}`;
       } catch (err) {
         logger.warn(`Failed to copy image from ZIP: ${relativePath}`, { error: err.message });
         return null;
@@ -769,6 +881,18 @@ async function processCandidateZIP(req, res, file) {
                           candidate.hallTicket || 
                           candidate['Hall Ticket'] ||
                           candidateId;
+
+        const candidateKey = (hallTicket || candidateId).toString();
+        uploadedCandidateKeys.add(candidateKey);
+
+        // Merge mode: skip candidate if already exists (preserve existing biometric data)
+        if (uploadMode === 'merge' && existingCandidateMap.has(candidateKey)) {
+          logger.info('Skipping existing candidate in merge mode', {
+            candidateId: existingCandidateMap.get(candidateKey).id,
+            hallTicket: existingCandidateMap.get(candidateKey).hallTicket
+          });
+          return;
+        }
 
         // Automatically find images in ZIP based on candidate ID
         // Look for photos/{candidateId}.jpg and signatures/{candidateId}.jpg
@@ -839,6 +963,11 @@ async function processCandidateZIP(req, res, file) {
       }
     });
 
+    // For merge mode, clean-up candidates that are no longer in the uploaded file
+    if (uploadMode === 'merge') {
+      await candidatesModule.retainCandidatesByKeySet(uploadedCandidateKeys);
+    }
+
     logger.success('Candidate ZIP file processed', {
       fileName: file.originalname,
       totalCandidates: candidates.length,
@@ -858,10 +987,12 @@ async function processCandidateZIP(req, res, file) {
       });
     }
 
-    // Clean up extraction directory
+    // Cleanup extraction directory (we don't keep per-upload folder state now)
     try {
-      fs.rmSync(extractionDir, { recursive: true, force: true });
-      logger.info('Cleanup: Extraction directory removed');
+      if (fs.existsSync(extractionDir)) {
+        fs.rmSync(extractionDir, { recursive: true, force: true });
+        logger.info('Cleaned extraction directory after processing', { extractionDir });
+      }
     } catch (cleanupError) {
       logger.warn('Failed to cleanup extraction directory', { error: cleanupError.message });
     }
@@ -899,11 +1030,8 @@ async function processCandidateZIP(req, res, file) {
       ip: req.ip
     });
 
-    // Clean up
+    // Clean up temporary upload file (keep extraction for debugging/audit)
     try {
-      if (fs.existsSync(extractionDir)) {
-        fs.rmSync(extractionDir, { recursive: true, force: true });
-      }
       if (fs.existsSync(file.path)) {
         fs.unlinkSync(file.path);
       }
@@ -1041,15 +1169,13 @@ router.post('/reset-system', async (req, res) => {
       }
     }
     
-    // Clear all candidate data (in-memory)
+    // Clear all candidate data (in-memory) and centre info for a full reset
     candidatesModule.clearCandidates();
+    candidatesModule.setCentreInfo({ code: '', name: '', examSlot: '' });
 
-    // Do NOT reset centre info - preserve centre allocation across system reset
-    // (only candidate data and images will be deleted)
-
-    // Delete data files (preserve centreInfo.json)
+    // Delete all app data files from /data
     const dataDir = path.join(__dirname, '../../data');
-    const filesToDelete = ['candidates.json'];
+    const filesToDelete = ['candidates.json', 'centreInfo.json', 'candidate_biometric_details.json'];
 
     for (const fileName of filesToDelete) {
       const filePath = path.join(dataDir, fileName);
@@ -1063,15 +1189,28 @@ router.post('/reset-system', async (req, res) => {
       }
     }
 
-    // also remove biometric JSON from uploads/candidates-data
-    const bioPath = path.join(__dirname, '../../uploads/candidates-data/candidates_biometric.json');
+    // Delete candidate image folders under /data/candidates-data
+    const dataCandidatesDir = path.join(dataDir, 'candidates-data');
+
     try {
-      if (fs.existsSync(bioPath)) {
-        fs.unlinkSync(bioPath);
-        logger.info('Deleted biometric JSON file');
+      if (fs.existsSync(dataCandidatesDir)) {
+        deleteDirectory(dataCandidatesDir);
+        fs.rmdirSync(dataCandidatesDir);
+        logger.info('Deleted data candidates-data folder');
       }
     } catch (err) {
-      logger.warn('Failed to delete biometric JSON during reset', { error: err.message });
+      logger.warn('Failed to delete data candidates-data directory during reset', { error: err.message });
+    }
+
+    // Also remove legacy biometric JSON path in uploads if exists
+    const legacyBioPath = path.join(__dirname, '../../uploads/candidates-data/candidates_biometric.json');
+    try {
+      if (fs.existsSync(legacyBioPath)) {
+        fs.unlinkSync(legacyBioPath);
+        logger.info('Deleted legacy biometric JSON file from uploads');
+      }
+    } catch (err) {
+      logger.warn('Failed to delete legacy biometric JSON during reset', { error: err.message });
     }
 
     // Ensure disk reflects cleared in-memory state
@@ -1114,7 +1253,7 @@ router.post('/reset-system', async (req, res) => {
   }
 });
 
-// Serve candidate images (photos, signatures) from uploads folder
+// Serve candidate images (photos, signatures) from data folder (legacy route)
 router.get('/images/:candidateId/:fileName', (req, res) => {
   try {
     const { candidateId, fileName } = req.params;
@@ -1127,11 +1266,11 @@ router.get('/images/:candidateId/:fileName', (req, res) => {
       });
     }
     
-    const filePath = path.join(__dirname, '../../uploads/candidate-images', candidateId, fileName);
+    const filePath = path.join(__dirname, '../../data/candidates-data', candidateId, fileName);
     
     // Check if file exists
     if (!fs.existsSync(filePath)) {
-      logger.warn('Image file not found', { candidateId, fileName, filePath });
+      logger.warn('Image file not found in data folder', { candidateId, fileName, filePath });
       return res.status(404).json({
         successful: false,
         message: 'Image not found'

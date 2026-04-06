@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Biometric Candidate List</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 12px; }
+    h1 { text-align: center; font-size: 20px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; }
+    th, td { border: 1px solid #444; padding: 6px 8px; text-align: left; }
+    th { background: #f1f1f1; }
+    .nowrap { white-space: nowrap; }
+    .small { font-size: 9px; }
+    .photo-cell img { max-width: 60px; max-height: 40px; object-fit: contain; }
+    .footer { margin-top: 12px; font-size: 9px; text-align: right; }
+  </style>
+</head>
+<body>
+  <h1>Biometric Candidate List</h1>
+  <table>
+    <thead>
+      <tr>
+        <th>Hall Ticket</th>
+        <th>Candidate</th>
+        <th>Email</th>
+        <th>Gender</th>
+        <th>Signature</th>
+        <th>Photo</th>
+        <th>Captured Photo</th>
+        <th>Captured Thumb</th>
+        <th>Status</th>
+        <th>Capture &amp; Submit Timing</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{rows}}
+    </tbody>
+  </table>
+  <div class="footer">Generated at: {{generatedAt}} IST</div>
+</body>
+</html>

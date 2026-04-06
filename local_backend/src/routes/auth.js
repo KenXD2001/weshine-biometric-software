@@ -9,16 +9,16 @@ const CLOUD_BACKEND_URL = process.env.CLOUD_BACKEND_URL;
  * Login endpoint
  * Flow: Frontend (3030) -> Local Backend (8080) -> Cloud Backend (8040)
  * 
- * Frontend sends: { username, password }
+ * Frontend sends: { email, password }
  * Cloud backend returns: { success, token, user }
  * Local backend transforms to: { successful, api_token, user }
  */
 router.post('/login', async (req, res) => {
   try {
-    const { username, password } = req.body;
+    const { email, password } = req.body;
 
     logger.info('🔐 Login request received - forwarding to cloud backend', { 
-      username, 
+      email, 
       passwordProvided: !!password,
       passwordLength: password ? password.length : 0,
       cloudBackendUrl: CLOUD_BACKEND_URL,
@@ -27,16 +27,16 @@ router.post('/login', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
-    if (!username || !password) {
+    if (!email || !password) {
       logger.warn('❌ Login failed - missing credentials', { 
-        username, 
+        email, 
         passwordProvided: !!password,
         ip: req.ip,
         timestamp: new Date().toISOString()
       });
       return res.status(400).json({
         successful: false,
-        message: 'Username and password are required'
+        message: 'Email and password are required'
       });
     }
 
@@ -51,7 +51,7 @@ router.post('/login', async (req, res) => {
       const cloudResponse = await axios.post(
         `${CLOUD_BACKEND_URL}/api/auth/login`,
         { 
-          username, 
+          email, 
           password
         },
         {
@@ -60,7 +60,7 @@ router.post('/login', async (req, res) => {
       );
 
       logger.success('✅ Login successful from cloud backend', { 
-        username, 
+        email, 
         ip: req.ip,
         responseStatus: cloudResponse.status,
         responseTime: new Date().toISOString(),
@@ -119,7 +119,7 @@ router.post('/login', async (req, res) => {
       const statusCode = cloudError.response?.status || 500;
 
       logger.error('❌ Cloud backend login failed', { 
-        username,
+        email,
         error: errorMessage,
         statusCode,
         cloudBackendUrl: CLOUD_BACKEND_URL,
