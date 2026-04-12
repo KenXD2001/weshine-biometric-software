@@ -1,11 +1,14 @@
 import type { LoginResponse } from '../types/auth';
 
-type SecuGenApiResponse = {
+type BiometricDeviceApiResponse = {
   ISOTemplateBase64?: string;
   TemplateBase64?: string;
   CaptureTime?: string;
   ErrorCode?: number;
   BMPBase64?: string;
+  fingerprintData?: string;
+  imageData?: string;
+  faceCaptureData?: string;
   [key: string]: unknown;
 };
 
@@ -60,6 +63,49 @@ export const API_ENDPOINTS = {
 
 export const createApiUrl = (endpoint: string) => {
   return `${API_BASE_URL}${endpoint}`;
+};
+
+const BIOMETRIC_DEVICE_CAPTURE_URL = import.meta.env.VITE_BIOMETRIC_DEVICE_CAPTURE_URL || 'http://localhost:8004/mfs100/capture';
+const BIOMETRIC_DEVICE_TEST_URL = import.meta.env.VITE_BIOMETRIC_DEVICE_TEST_URL || 'http://localhost:8004/mfs100/info';
+
+const normalizeBase64Image = (rawData?: string | null) => {
+  if (!rawData) return null;
+  if (rawData.startsWith('data:')) return rawData;
+
+  return `data:image/png;base64,${rawData}`;
+};
+
+const parseBiometricDeviceResponse = (result: Record<string, unknown>) => {
+  // Parse MFS100 API response format
+  const imageFields = [
+    'BitmapData',
+    'IsoImage',
+    'WsqImage',
+    'RawData',
+    'BMPBase64',
+    'bmpBase64',
+    'ImageData',
+    'imageData'
+  ];
+
+  const rawImage = imageFields
+    .map(key => result[key] as string | undefined)
+    .find(Boolean) || null;
+
+  const templateFields = {
+    isoTemplateBase64: (result.IsoTemplate as string | undefined)
+      || (result.ISOTemplateBase64 as string | undefined)
+      || undefined,
+    templateBase64: (result.AnsiTemplate as string | undefined)
+      || (result.TemplateBase64 as string | undefined)
+      || undefined
+  };
+
+  return {
+    imageData: normalizeBase64Image(rawImage),
+    templateData: templateFields,
+    deviceInfo: result
+  };
 };
 
 // API service functions
@@ -171,90 +217,148 @@ export const syncService = {
 
 // Biometric device service functions
 export const biometricService = {
-  testSecugenDevice: async (): Promise<{ connected: boolean; message: string; deviceInfo?: Record<string, unknown> }> => {
+  testBiometricDevice: async (): Promise<{ connected: boolean; message: string; deviceInfo?: Record<string, unknown> }> => {
     try {
-      // SecuGen WebAPI runs on HTTPS localhost:8443
-      // The correct endpoint is /SGIFPCapture based on testing
-      // SSL certificate will be invalid for localhost
-      const response = await fetch('https://localhost:8443/SGIFPCapture', {
+      // MFS100 API uses GET request to info endpoint for device status
+      const response = await fetch(BIOMETRIC_DEVICE_TEST_URL, {
         method: 'GET',
-        // Ignore SSL certificate for localhost
-        mode: 'cors'
+        mode: 'cors',
+        headers: {
+          'Accept': 'application/json, text/javascript, */*; q=0.01',
+          'Content-Type': 'application/json',
+        },
       });
 
       if (response.ok) {
         const deviceInfo = await response.json();
         return {
           connected: true,
-          message: 'SecuGen device is connected and working properly',
+          message: 'Mantra MFS100 device is connected and working properly',
           deviceInfo
         };
-      } else {
+      }
+
+      if (response.status === 404) {
         return {
           connected: false,
-          message: 'SecuGen device is not responding correctly'
+          message: 'MFS100 service not found. Please ensure the service is running on port 8004.'
         };
       }
+
+      return {
+        connected: false,
+        message: 'Device is not responding correctly'
+      };
     } catch (error: unknown) {
-      console.error('SecuGen device test error:', error);
-      
+      console.error('Biometric device test error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      // Check for common error types
+
       if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
         return {
           connected: false,
-          message: 'SecuGen device service is not running. Please start the device service.'
+          message: 'Cannot connect to MFS100 service. Please ensure: 1) Device is connected, 2) Service is running on localhost:8004, 3) Drivers are installed.'
         };
-      } else if (errorMessage.includes('SSL') || errorMessage.includes('certificate')) {
+      }
+
+      if (errorMessage.includes('SSL') || errorMessage.includes('certificate')) {
         return {
           connected: false,
           message: 'SSL certificate error. Please check device configuration.'
         };
-      } else {
-        return {
-          connected: false,
-          message: `Device test failed: ${errorMessage}`
-        };
       }
+
+      return {
+        connected: false,
+        message: `Device test failed: ${errorMessage}`
+      };
     }
   },
 
   captureThumb: async (): Promise<{ success: boolean; message: string; imageData?: string; deviceInfo?: Record<string, unknown> }> => {
     try {
-      // SecuGen WebAPI runs on HTTPS localhost:8443
-      // Use the correct SGIFPCapture endpoint for fingerprint capture
-      const response = await fetch('https://localhost:8443/SGIFPCapture', {
-        method: 'GET',
-        // Ignore SSL certificate for localhost
-        mode: 'cors'
+      // MFS100 API requires POST request with specific payload
+      const capturePayload = {
+        Quality: 60,
+        TimeOut: 10
+      };
+
+      // Create AbortController for timeout
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+      const response = await fetch(BIOMETRIC_DEVICE_CAPTURE_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(capturePayload),
+        signal: controller.signal
       });
 
-      if (response.ok) {
-        const result = await response.json();
-        console.log('🖐️ [API] Thumb capture response:', result);
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Device capture failed with status:', response.status, errorText);
         
-        // Check if response contains actual fingerprint data
-        // The API might return different field names
-        const imageData = result.fingerprintData || result.imageData || result.BMPBase64 || result.TemplateBase64;
+        if (response.status === 400) {
+          return {
+            success: false,
+            message: 'Invalid capture request. Please check device configuration.'
+          };
+        }
         
-        return {
-          success: true,
-          message: 'Fingerprint captured successfully',
-          imageData: imageData,
-          deviceInfo: result
-        };
-      } else {
+        if (response.status === 404) {
+          return {
+            success: false,
+            message: 'Device service not found. Please ensure Mantra MFS100 service is running on port 8004.'
+          };
+        }
+        
         return {
           success: false,
-          message: 'Failed to capture fingerprint'
+          message: `Device returned error: ${response.status} ${errorText}`
         };
       }
+
+      const result = await response.json();
+      console.log('???? [API] Thumb capture response:', result);
+      const parsed = parseBiometricDeviceResponse(result as Record<string, unknown>);
+
+      if (!parsed.imageData) {
+        console.warn('Device response missing image data:', result);
+        return {
+          success: false,
+          message: 'Device responded without usable fingerprint data. Please ensure finger is properly placed on scanner.',
+          deviceInfo: result as Record<string, unknown>
+        };
+      }
+
+      return {
+        success: true,
+        message: 'Fingerprint captured successfully',
+        imageData: parsed.imageData,
+        deviceInfo: parsed.deviceInfo
+      };
     } catch (error: unknown) {
       console.error('Fingerprint capture error:', error);
-      
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       
+      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
+        return {
+          success: false,
+          message: 'Cannot connect to Mantra MFS100 service. Please ensure: 1) Mantra device is connected, 2) MFS100 service is running on localhost:8004, 3) Device drivers are installed.'
+        };
+      }
+      
+      if (errorMessage.includes('timeout')) {
+        return {
+          success: false,
+          message: 'Capture timeout. Please try again and ensure finger remains on scanner during capture.'
+        };
+      }
+
       return {
         success: false,
         message: `Fingerprint capture failed: ${errorMessage}`
@@ -289,7 +393,7 @@ export const biometricService = {
     }
   },
 
-  submitThumbCapture: async (hallTicket: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, secugenApiResponse?: SecuGenApiResponse): Promise<{ successful: boolean; message: string }> => {
+  submitThumbCapture: async (hallTicket: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-thumb-capture`, {
         method: 'POST',
@@ -301,7 +405,7 @@ export const biometricService = {
           thumbData,
           ISOTemplateBase64: isoTemplateBase64 || null,
           TemplateBase64: templateBase64 || null,
-          secugenApiResponse: secugenApiResponse || null,
+          deviceApiResponse: deviceApiResponse || null,
           captureTimestamp: captureTimestamp || new Date().toISOString()
         })
       });
@@ -319,46 +423,6 @@ export const biometricService = {
     }
   },
 
-  captureFace: async (): Promise<{ success: boolean; message: string; imageData?: string; deviceInfo?: Record<string, unknown> }> => {
-    try {
-      // Use the correct backend endpoint for face capture
-      const response = await fetch('http://10.5.48.253:5000/api/submit-face-capture', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('👤 [API] Face capture response:', result);
-        
-        // Check if the response contains actual face data
-        const imageData = result.faceCaptureData || result.imageData || result.BMPBase64 || result.TemplateBase64;
-        
-        return {
-          success: true,
-          message: 'Face captured successfully',
-          imageData: imageData,
-          deviceInfo: result
-        };
-      } else {
-        return {
-          success: false,
-          message: 'Failed to capture face'
-        };
-      }
-    } catch (error: unknown) {
-      console.error('Face capture error:', error);
-      
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      return {
-        success: false,
-        message: `Face capture failed: ${errorMessage}`
-      };
-    }
-  }
 };
 
 // Re-export types for convenience

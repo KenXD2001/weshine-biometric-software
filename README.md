@@ -5,7 +5,7 @@ Professional biometric verification system for examinations built with Electron.
 ## Features
 
 - **Face Recognition** - Real-time face matching with AI
-- **Fingerprint Capture** - SecuGen device integration
+- **Fingerprint Capture** - Mantra MFS100 device integration
 - **Candidate Management** - Upload, verify, and track candidates
 - **Offline Operation** - No internet required
 - **Secure Storage** - All data stored locally
@@ -45,8 +45,8 @@ Professional biometric verification system for examinations built with Electron.
 - **Settings**: electron-store
 
 ### Biometric Devices
-- **Fingerprint**: SecuGen devices (Hamster Pro, Hamster Plus)
-- **API**: SecuGen Web API (HTTPS localhost:8443)
+- **Fingerprint**: Mantra MFS100
+- **API**: Mantra MFS100 RD Service local HTTP endpoint
 - **Face Detection**: TinyFaceDetector (face-api.js)
 - **Face Recognition**: FaceRecognitionNet (128-dimensional descriptors)
 - **Matching Algorithm**: Euclidean distance comparison
@@ -56,6 +56,19 @@ Professional biometric verification system for examinations built with Electron.
 - **FaceLandmark68Net** - 68-point facial landmark detection
 - **FaceRecognitionNet** - Face descriptor extraction
 - **Model Source**: face-api.js pre-trained models
+
+## Mantra MFS100 Configuration
+
+The frontend uses the Mantra MFS100 RD Service local HTTP endpoint.
+
+Use a `.env` file in `local_frontend/` with the following values:
+
+```env
+VITE_BIOMETRIC_DEVICE_CAPTURE_URL=http://localhost:11100/RDServiceMFS100
+VITE_BIOMETRIC_DEVICE_TEST_URL=http://localhost:11100/RDServiceMFS100
+```
+
+If your installation exposes a different RD Service URL, update `VITE_BIOMETRIC_DEVICE_CAPTURE_URL` and `VITE_BIOMETRIC_DEVICE_TEST_URL` accordingly.
 
 ## System Requirements
 
@@ -67,7 +80,7 @@ Professional biometric verification system for examinations built with Electron.
 
 ### Hardware
 - **Webcam**: Built-in or USB (720p minimum)
-- **Fingerprint Device**: SecuGen Hamster series
+- **Fingerprint Device**: Mantra MFS100
 - **USB Ports**: USB 2.0/3.0
 
 ## Development Setup
@@ -177,9 +190,9 @@ Electron Main Process
 ```
 Frontend (React)
     ↓
-SecuGen Web API (HTTPS - localhost:8443)
+Mantra MFS100 RD Service (local HTTP endpoint)
     ↓
-SecuGen Device Driver
+Mantra MFS100 device driver
     ↓
 Physical Fingerprint Device
 ```
@@ -254,8 +267,8 @@ Distribute: `Digi Biometric System-Setup-1.0.0.exe`
 | Face Landmarks | FaceLandmark68Net | 68-point facial feature detection |
 | Face Descriptors | FaceRecognitionNet | 128-dimensional face embeddings |
 | Matching | Euclidean Distance | Distance threshold: 0.25 (excellent), 0.38 (acceptable) |
-| Fingerprint Capture | SecuGen Web API | HTTPS REST API (localhost:8443) |
-| Device Support | SecuGen Hamster series | Pro 20, Plus, IV models |
+| Fingerprint Capture | Mantra MFS100 RD Service | HTTP REST API (localhost:11100) |
+| Device Support | Mantra MFS100 | MFS100 optical scanner |
 
 ### Data Storage
 | Storage Type | Format | Purpose |

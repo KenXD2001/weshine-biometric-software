@@ -1,13 +1,4 @@
 import React, { useState } from 'react';
-
-type SecuGenApiResponse = {
-  ISOTemplateBase64?: string;
-  TemplateBase64?: string;
-  CaptureTime?: string;
-  ErrorCode?: number;
-  BMPBase64?: string;
-  [key: string]: unknown;
-};
 import ExaminationDetails from '../components/ExaminationDetails';
 import BiometricDetails from '../components/BiometricDetails';
 import SessionDetails from '../components/SessionDetails';
@@ -16,6 +7,17 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import ToastContainer from '../components/Toast/ToastContainer';
 import { useToast } from '../hooks/useToast';
 import { authService, biometricService, uploadService } from '../services/api';
+
+type BiometricDeviceApiResponse = {
+  ISOTemplateBase64?: string;
+  TemplateBase64?: string;
+  CaptureTime?: string;
+  ErrorCode?: number;
+  BMPBase64?: string;
+  fingerprintData?: string;
+  imageData?: string;
+  [key: string]: unknown;
+};
 
 const BiometricSoftware: React.FC = () => {
   // Get user data for initial state
@@ -45,7 +47,7 @@ const BiometricSoftware: React.FC = () => {
   const [capturedImage, setCapturedImage] = useState(''); // For webcam captures
   const [thumbTemplate, setThumbTemplate] = useState({ isoTemplateBase64: '', templateBase64: '' });
   const [thumbCaptureTimestamp, setThumbCaptureTimestamp] = useState('');
-  const [secugenApiResponse, setSecugenApiResponse] = useState<SecuGenApiResponse | null>(null);
+  const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const { toasts, success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo, removeToast } = useToast();
@@ -55,12 +57,12 @@ const BiometricSoftware: React.FC = () => {
     imageData?: string,
     templateData?: { isoTemplateBase64?: string; templateBase64?: string },
     captureTimestamp?: string,
-    secugenApiResponse?: SecuGenApiResponse
+    deviceApiResponse?: BiometricDeviceApiResponse
   ) => {
     setCapturedImages(prev => ({ ...prev, [type]: true }));
 
-    if (type === 'thumb' && secugenApiResponse) {
-      setSecugenApiResponse(secugenApiResponse);
+    if (type === 'thumb' && deviceApiResponse) {
+      setDeviceApiResponse(deviceApiResponse);
     }
 
     if (imageData) {
@@ -125,7 +127,7 @@ const BiometricSoftware: React.FC = () => {
           thumbTemplate.isoTemplateBase64,
           thumbTemplate.templateBase64,
           thumbCaptureTimestamp,
-          secugenApiResponse || undefined
+          deviceApiResponse || undefined
         );
       } else {
         toastInfo('No Thumb Capture', 'No captured thumb data available yet.');
@@ -168,6 +170,7 @@ const BiometricSoftware: React.FC = () => {
     setCapturedImage('');
     setThumbTemplate({ isoTemplateBase64: '', templateBase64: '' });
     setThumbCaptureTimestamp('');
+    setDeviceApiResponse(null);
   };
 
   const handleResetSystemButtonClick = () => {

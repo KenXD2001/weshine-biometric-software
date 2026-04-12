@@ -4,12 +4,14 @@ import Button from './ui/Button';
 import WebcamComponent from './Webcam';
 import { biometricService } from "../services/api";
 
-type SecuGenApiResponse = {
+type BiometricDeviceApiResponse = {
   ISOTemplateBase64?: string;
   TemplateBase64?: string;
   CaptureTime?: string;
   ErrorCode?: number;
   BMPBase64?: string;
+  fingerprintData?: string;
+  imageData?: string;
   [key: string]: unknown;
 };
 
@@ -32,7 +34,7 @@ interface BiometricDetailsProps {
     imageData?: string,
     templateData?: { isoTemplateBase64?: string; templateBase64?: string },
     captureTimestamp?: string,
-    secugenApiResponse?: SecuGenApiResponse
+    deviceApiResponse?: BiometricDeviceApiResponse
   ) => void;
   handleWebcamToggle: () => void;
 }
@@ -98,9 +100,10 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
       type: "signature" | "uploaded" | "camera" | "live" | "thumb",
       imageData?: string,
       templateData?: { isoTemplateBase64?: string; templateBase64?: string },
-      captureTimestamp?: string
+      captureTimestamp?: string,
+      deviceApiResponse?: BiometricDeviceApiResponse
     ) => {
-      handleCaptureProp(type, imageData, templateData, captureTimestamp);
+      handleCaptureProp(type, imageData, templateData, captureTimestamp, deviceApiResponse);
     },
     [handleCaptureProp]
   );
@@ -117,23 +120,28 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
 
   const handleThumbCapture = useCallback(async () => {
     try {
-      const response = await fetch('https://localhost:8443/SGIFPCapture', {
-        method: 'GET',
-        mode: 'cors'
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        console.log('[BiometricDetails] SecuGen thumb response', result);
-        
-        if (result.ErrorCode === 0 && result.BMPBase64) {
-          const imageData = "data:image/png;base64," + result.BMPBase64;
-          handleCaptureDebug('thumb', imageData, {
-            isoTemplateBase64: result.ISOTemplateBase64,
-            templateBase64: result.TemplateBase64
-          }, result.CaptureTime || new Date().toISOString());
-        }
+      const result = await biometricService.captureThumb();
+      if (!result.success) {
+        console.warn('[BiometricDetails] Thumb capture failed', result.message);
+        return;
       }
+
+      const imageData = result.imageData;
+      if (!imageData) {
+        console.warn('[BiometricDetails] Thumb capture returned no image data');
+        return;
+      }
+
+      handleCaptureDebug(
+        'thumb',
+        imageData,
+        {
+          isoTemplateBase64: result.deviceInfo?.IsoTemplate as string,
+          templateBase64: result.deviceInfo?.AnsiTemplate as string
+        },
+        new Date().toISOString(),
+        result.deviceInfo as BiometricDeviceApiResponse
+      );
     } catch (error) {
       console.error('Thumb capture error:', error);
     }
@@ -144,7 +152,7 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
     setDeviceStatus(null);
     
     try {
-      const result = await biometricService.testSecugenDevice();
+      const result = await biometricService.testBiometricDevice();
       setDeviceStatus(result);
     } catch {
       setDeviceStatus({

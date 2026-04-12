@@ -271,7 +271,8 @@ router.post('/submit-face-capture', async (req, res) => {
 // Submit thumb capture data
 router.post('/submit-thumb-capture', async (req, res) => {
   try {
-    const { thumbData, hallTicket, ISOTemplateBase64, TemplateBase64, secugenApiResponse } = req.body;
+    const { thumbData, hallTicket, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
+    const rawDeviceResponse = deviceApiResponse || secugenApiResponse;
     
     logger.info('Submitting thumb capture', { 
       hallTicket,
@@ -279,8 +280,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
       isoTemplateLength: ISOTemplateBase64 ? ISOTemplateBase64.length : 0,
       hasTemplate: !!TemplateBase64,
       templateLength: TemplateBase64 ? TemplateBase64.length : 0,
-      hasSecugenResponse: !!secugenApiResponse,
-      secugenResponseKeys: secugenApiResponse ? Object.keys(secugenApiResponse) : [],
+      hasDeviceResponse: !!rawDeviceResponse,
+      deviceResponseKeys: rawDeviceResponse ? Object.keys(rawDeviceResponse) : [],
       ip: req.ip 
     });
 
@@ -310,15 +311,9 @@ router.post('/submit-thumb-capture', async (req, res) => {
     candidate.biometricImagePath = biometricImagePath;
     candidate.thumbStatus = 'Completed';
     
-    // Extract only essential template fields from Secugen API response
-    if (secugenApiResponse) {
-      candidate.ISOTemplateBase64 = secugenApiResponse.ISOTemplateBase64 || ISOTemplateBase64 || null;
-      candidate.TemplateBase64 = secugenApiResponse.TemplateBase64 || TemplateBase64 || null;
-    } else {
-      // Fallback to individual fields if no complete response
-      candidate.ISOTemplateBase64 = ISOTemplateBase64 || null;
-      candidate.TemplateBase64 = TemplateBase64 || null;
-    }
+    const deviceResponse = rawDeviceResponse || {};
+    candidate.ISOTemplateBase64 = deviceResponse.ISOTemplateBase64 || ISOTemplateBase64 || null;
+    candidate.TemplateBase64 = deviceResponse.TemplateBase64 || TemplateBase64 || null;
 
     logger.info('Assigned thumb biometric templates', {
       hallTicket,
@@ -344,8 +339,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
     logger.success('Thumb capture submitted successfully', { 
       hallTicket,
       candidateId: candidate.id,
-      hasSecugenResponse: !!secugenApiResponse,
-      responseErrorCode: secugenApiResponse?.ErrorCode,
+      hasDeviceResponse: !!rawDeviceResponse,
+      responseErrorCode: rawDeviceResponse?.ErrorCode,
       submitTimestamp: candidate.submitTimestamp
     });
 
