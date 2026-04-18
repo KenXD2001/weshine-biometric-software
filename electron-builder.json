@@ -6,8 +6,7 @@
   "directories": {
     "output": "dist-electron",
     "buildResources": "electron/resources"
-  },
-    "files": [
+  },  "forceCodeSigning": false,    "files": [
     "electron/**/*",
     "local_backend/**/*",
     "!local_backend/logs/**/*",
@@ -18,19 +17,20 @@
   ],
   "asarUnpack": [
     "local_frontend/dist/**/*",
-    "local_backend/node_modules/**/*",
+    "local_backend/**/*",
     "node_modules/**/*",
     "local_backend/.env",
     "local_frontend/.env"
   ],
   "extraResources": [
     {
-      "from": "local_backend/.env.example",
-      "to": "local_backend/.env.example",
+      "from": "local_backend/env.example",
+      "to": "local_backend/env.example",
       "filter": ["**/*"]
     }
   ],
   "win": {
+    "forceCodeSigning": false,
     "target": [
       {
         "target": "nsis",
@@ -44,7 +44,7 @@
     "icon": "electron/resources/icon.ico",
     "artifactName": "${productName}-Setup-${version}.${ext}",
     "requestedExecutionLevel": "requireAdministrator",
-    "publisherName": "Digi Biometric"
+    "forceCodeSigning": false
   },
   "nsis": {
     "oneClick": false,

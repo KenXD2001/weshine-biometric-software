@@ -123,9 +123,23 @@ function startBackend() {
     log.info('Starting embedded backend server...');
     
     try {
-      // Import and start bundled backend server
-      const backendPath = path.join(__dirname, 'backend-bundle.js');
-      
+      // Import and start backend server
+      let backendPath;
+      const bundledBackendPath = path.join(__dirname, 'backend-bundle.js');
+      const unpackedBackendPath = path.join(process.resourcesPath, 'app.asar.unpacked', 'local_backend', 'src', 'server.js');
+      const productionBackendSource = path.join(__dirname, '..', 'local_backend', 'src', 'server.js');
+      const devBackendSource = path.join(__dirname, '..', 'local_backend', 'src', 'server.js');
+
+      if (isDev) {
+        backendPath = devBackendSource;
+      } else if (require('fs').existsSync(unpackedBackendPath)) {
+        backendPath = unpackedBackendPath;
+      } else if (require('fs').existsSync(bundledBackendPath)) {
+        backendPath = bundledBackendPath;
+      } else {
+        backendPath = productionBackendSource;
+      }
+
       log.info('Backend server path:', backendPath);
 
       // Set environment variables
