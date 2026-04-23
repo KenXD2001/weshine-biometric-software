@@ -24,9 +24,15 @@ const SessionDetails: React.FC<SessionDetailsProps> = () => {
         setLoading(true);
         const userData = authService.getUser();
 
-        const centreCode = userData?.centreCode || '';
-        if (!centreCode) {
-          console.warn('No centre code found in user data; fetching total counts for all centres.');
+        // Prefer latest uploaded centre info over login-time centre code.
+        let centreCode = userData?.centreCode || '';
+        try {
+          const centreInfoResult = await candidateService.getCentreInfo();
+          if (centreInfoResult.successful && centreInfoResult.data?.centreCode) {
+            centreCode = String(centreInfoResult.data.centreCode);
+          }
+        } catch (centreInfoError) {
+          console.warn('Failed to load centre info for counts; using login centre code fallback.', centreInfoError);
         }
 
         const data = await candidateService.getCandidateCounts(centreCode);

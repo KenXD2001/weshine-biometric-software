@@ -470,14 +470,14 @@ class SyncService {
   }
 
   // Fetch biometric records from cloud backend for the given hall tickets
-  async fetchCloudBiometricRecords(hallTickets) {
+  async fetchCloudBiometricRecords(candidateLookupKeys) {
     const requestId = `fetch_cloud_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
     
-    if (!Array.isArray(hallTickets) || hallTickets.length === 0) {
-      logger.warn('Empty hall tickets array for cloud fetch', {
+    if (!Array.isArray(candidateLookupKeys) || candidateLookupKeys.length === 0) {
+      logger.warn('Empty candidate lookup keys array for cloud fetch', {
         requestId,
-        hallTickets,
+        candidateLookupKeys,
         reason: 'Invalid input'
       });
       
@@ -492,8 +492,8 @@ class SyncService {
     try {
       logger.info('Fetching biometric records from cloud', {
         requestId,
-        totalRequested: hallTickets.length,
-        hallTickets,
+        totalRequested: candidateLookupKeys.length,
+        lookupKeys: candidateLookupKeys,
         cloudBackendUrl: this.cloudBackendUrl,
         timestamp: new Date().toISOString()
       });
@@ -501,7 +501,7 @@ class SyncService {
       const response = await axios.post(
         `${this.cloudBackendUrl}/api/sync/biometric-records`,
         { 
-          hallTickets,
+          hallTickets: candidateLookupKeys,
           localBackendId: this.syncStateManager.localBackendId
         },
         {
@@ -517,7 +517,7 @@ class SyncService {
 
       logger.info('Cloud biometric records fetched successfully', {
         requestId,
-        totalRequested: hallTickets.length,
+        totalRequested: candidateLookupKeys.length,
         totalFound: responseData.foundCount || 0,
         faceCount: responseData.faceCount || 0,
         thumbCount: responseData.thumbCount || 0,
@@ -534,8 +534,8 @@ class SyncService {
       
       logger.error('Failed to fetch biometric records from cloud', {
         requestId,
-        totalRequested: hallTickets.length,
-        hallTickets,
+        totalRequested: candidateLookupKeys.length,
+        lookupKeys: candidateLookupKeys,
         error: errorMessage,
         errorCode: error.response?.status || 'NO_CODE',
         processingTime: `${processingTime}ms`,

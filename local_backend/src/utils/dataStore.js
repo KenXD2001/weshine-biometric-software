@@ -58,6 +58,7 @@ async function saveCandidates(candidates) {
       // Centre details
       centreCode: c.centreCode,
       centreName: c.centreName,
+      city: c.city,
       // Timestamps
       imageCaptureTimestamp: c.imageCaptureTimestamp,
       thumbCaptureTimestamp: c.thumbCaptureTimestamp,
@@ -103,6 +104,7 @@ async function saveCentreInfo(centreInfo, candidates = []) {
     const centreData = {
       code: centreInfo.code || '',
       name: centreInfo.name || '',
+      city: centreInfo.city || '',
       examSlot: centreInfo.examSlot || '',
       candidate_counts: {
         total: candidates.length,
@@ -179,6 +181,7 @@ async function saveCandidatesBiometric(candidates) {
       // Centre details
       centreCode: c.centreCode,
       centreName: c.centreName,
+      city: c.city,
       // Timestamps
       imageCaptureTimestamp: c.imageCaptureTimestamp || null,
       thumbCaptureTimestamp: c.thumbCaptureTimestamp || null,

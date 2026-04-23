@@ -6,13 +6,21 @@ interface ExaminationDetailsProps {
   setCentreCode: (value: string) => void;
   centreName: string;
   setCentreName: (value: string) => void;
+  city: string;
+  setCity: (value: string) => void;
+  examSlot: string;
+  setExamSlot: (value: string) => void;
 }
 
 const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
   centreCode,
   setCentreCode,
   centreName,
-  setCentreName
+  setCentreName,
+  city,
+  setCity,
+  examSlot,
+  setExamSlot
 }) => {
   return (
     <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-gray-200/50 shadow-lg shadow-gray-200/25 hover:shadow-xl transition-shadow duration-300">
@@ -67,6 +75,54 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
                 width: '100%',
                 fontSize: '14px',
                 color: centreName ? '#000' : '#999'
+              }}
+            />
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">
+              <Check className="h-3 w-3 text-green-500" />
+            </div>
+          </div>
+        </div>
+        <div className="group">
+          <label className="block text-xs font-semibold text-gray-700 mb-1 group-focus-within:text-blue-600 transition-colors">
+            City <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              value={city}
+              onChange={(e) => setCity(e.target.value)}
+              placeholder="Bangalore"
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                padding: '6px 8px',
+                width: '100%',
+                fontSize: '14px',
+                color: city ? '#000' : '#999'
+              }}
+            />
+            <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">
+              <Check className="h-3 w-3 text-green-500" />
+            </div>
+          </div>
+        </div>
+        <div className="group">
+          <label className="block text-xs font-semibold text-gray-700 mb-1 group-focus-within:text-blue-600 transition-colors">
+            Exam Slot <span className="text-red-500">*</span>
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              value={examSlot}
+              onChange={(e) => setExamSlot(e.target.value)}
+              placeholder="Slot One"
+              style={{
+                border: '1px solid #e5e7eb',
+                borderRadius: '8px',
+                padding: '6px 8px',
+                width: '100%',
+                fontSize: '14px',
+                color: examSlot ? '#000' : '#999'
               }}
             />
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">

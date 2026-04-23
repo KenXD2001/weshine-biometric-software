@@ -71,6 +71,9 @@ Thumbs.db
 uploads/
 user_data_fallback/
 
+# Candidate biometric data directories should not be committed
+data/candidates-data/
+
 # Data files (keep structure, ignore content)
 data/*.json
 !data/.gitkeep

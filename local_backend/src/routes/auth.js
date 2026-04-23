@@ -78,13 +78,22 @@ router.post('/login', async (req, res) => {
       const user = cloudResponse.data.data.user || {};
       const centreCode = user.centreCode || null;
       const centreName = user.centreName || null;
+      const city = user.city || user.cityName || null;
 
-      // Persist centre info received from cloud during login (do not use mock defaults)
+      // Persist centre info received from cloud during login (do not overwrite centre metadata from uploads)
       if (centreCode) {
         try {
           const candidatesModule = require('./candidates');
-          candidatesModule.setCentreInfo({ code: centreCode, name: centreName || '', examSlot: '' });
-          logger.info('Stored centre info from cloud login', { centreCode, centreName });
+          const existingCentreInfo = candidatesModule.getCentreInfo() || {};
+
+          candidatesModule.setCentreInfo({
+            code: centreCode,
+            name: centreName || existingCentreInfo.name || '',
+            city: city || existingCentreInfo.city || '',
+            examSlot: existingCentreInfo.examSlot || ''
+          });
+
+          logger.info('Stored centre info from cloud login', { centreCode, centreName, city });
         } catch (err) {
           logger.warn('Failed to persist centre info from login', { error: err.message });
         }

@@ -103,6 +103,126 @@ function parseCSV(csvContent) {
   return candidates;
 }
 
+function normalizeSlotLabel(slotValue) {
+  const normalized = String(slotValue || '').trim().toLowerCase();
+  if (!normalized) return '';
+
+  if (normalized.includes('slot one') || normalized.includes('slot 1') || normalized === 'a') {
+    return 'slot_one';
+  }
+
+  if (normalized.includes('slot two') || normalized.includes('slot 2') || normalized === 'b') {
+    return 'slot_two';
+  }
+
+  return normalized;
+}
+
+function resolveCandidateHallTicket(candidate, examSlot) {
+  const slotKey = normalizeSlotLabel(
+    candidate.examSlot || candidate.slot || candidate['Exam Slot'] || examSlot
+  );
+
+  const slotOneHallTicket =
+    candidate.slotOneHallticket ||
+    candidate.slotOneHallTicket ||
+    candidate['Slot One Hallticket'] ||
+    candidate['Slot One HallTicket'] ||
+    candidate.slot_one_hallticket;
+
+  const slotTwoHallTicket =
+    candidate.slotTwoHallticket ||
+    candidate.slotTwoHallTicket ||
+    candidate['Slot Two Hallticket'] ||
+    candidate['Slot Two HallTicket'] ||
+    candidate.slot_two_hallticket;
+
+  const directHallTicket =
+    candidate.hallTicketId ||
+    candidate.hallTicket ||
+    candidate['Hall Ticket'] ||
+    candidate['HallTicket'] ||
+    candidate.hallticket;
+
+  if (slotKey === 'slot_one' && slotOneHallTicket) return String(slotOneHallTicket).trim();
+  if (slotKey === 'slot_two' && slotTwoHallTicket) return String(slotTwoHallTicket).trim();
+
+  return String(directHallTicket || slotOneHallTicket || slotTwoHallTicket || '').trim();
+}
+
+function resolveCandidateCity(candidate, fallbackCity = '') {
+  return (
+    candidate.city ||
+    candidate.cityName ||
+    candidate.cityPreference ||
+    candidate['City'] ||
+    candidate['City Name'] ||
+    candidate['City Preference'] ||
+    fallbackCity ||
+    ''
+  );
+}
+
+function resolveCandidateCentreCode(candidate, fallbackCentreCode = '') {
+  return (
+    candidate.centreCode ||
+    candidate.centerCode ||
+    candidate['Centre Code'] ||
+    fallbackCentreCode ||
+    ''
+  );
+}
+
+function resolveCandidateExamSlot(candidate, fallbackExamSlot = '') {
+  return (
+    candidate.examSlot ||
+    candidate.slot ||
+    candidate['Exam Slot'] ||
+    fallbackExamSlot ||
+    ''
+  );
+}
+
+function resolveCandidateCentreName(candidate, fallbackCentreName = '') {
+  return (
+    candidate.centreName ||
+    candidate.centre ||
+    candidate.centerName ||
+    candidate.center ||
+    candidate['Centre Name'] ||
+    candidate['Centre'] ||
+    fallbackCentreName ||
+    ''
+  );
+}
+
+function parseJwtPayload(token) {
+  try {
+    if (!token || typeof token !== 'string') return null;
+    const parts = token.split('.');
+    if (parts.length < 2) return null;
+
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function getCentreInfoFromRequestAuth(req) {
+  const authHeader = req.headers?.authorization || '';
+  const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7).trim() : '';
+  const payload = parseJwtPayload(token);
+  if (!payload) return null;
+
+  return {
+    code: payload.centreCode || payload.centerCode || '',
+    name: payload.centreName || payload.centerName || '',
+    city: payload.city || payload.cityName || '',
+  };
+}
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -302,7 +422,13 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT use any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', city: '', examSlot: '' };
+    const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
+    if (tokenCentreInfo) {
+      centreInfo.code = centreInfo.code || tokenCentreInfo.code;
+      centreInfo.name = centreInfo.name || tokenCentreInfo.name;
+      centreInfo.city = centreInfo.city || tokenCentreInfo.city;
+    }
 
     let candidates = [];
     
@@ -320,13 +446,6 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
           error: parseError.message
         });
         throw new Error(`CSV parsing failed: ${parseError.message}`);
-      }
-      // CSV uploads do not contain centre metadata. Require stored centre info.
-      if (!centreInfo || !centreInfo.code) {
-        return res.status(400).json({
-          successful: false,
-          message: 'Centre information not available. Please login so centre is assigned, or upload a JSON with centre metadata.'
-        });
       }
     } else {
       // Parse JSON format
@@ -366,6 +485,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         if (jsonData.centre && jsonData.centre.code) {
           centreInfo.code = jsonData.centre.code;
           centreInfo.name = jsonData.centre.name || centreInfo.name || '';
+          centreInfo.city = jsonData.centre.city || jsonData.centre.cityName || centreInfo.city || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
         } else if (!centreInfo || !centreInfo.code) {
           // No centre info available from JSON or stored data
@@ -387,6 +507,55 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         successful: false,
         message: 'No candidates found in file'
       });
+    }
+
+    const firstCandidateWithCity = candidates.find((candidate) =>
+      resolveCandidateCity(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithCity) {
+      centreInfo.city = resolveCandidateCity(firstCandidateWithCity, '').trim();
+    }
+
+    const firstCandidateWithCentreCode = candidates.find((candidate) =>
+      resolveCandidateCentreCode(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithCentreCode) {
+      centreInfo.code = resolveCandidateCentreCode(firstCandidateWithCentreCode, '').trim();
+    }
+
+    const firstCandidateWithExamSlot = candidates.find((candidate) =>
+      resolveCandidateExamSlot(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithExamSlot) {
+      centreInfo.examSlot = resolveCandidateExamSlot(firstCandidateWithExamSlot, '').trim();
+    }
+
+    if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
+      centreInfo.code = tokenCentreInfo.code;
+      centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
+      centreInfo.city = centreInfo.city || tokenCentreInfo.city || '';
+    }
+
+    if (!centreInfo || !String(centreInfo.code || '').trim()) {
+      return res.status(400).json({
+        successful: false,
+        message: 'Centre information not available in uploaded data. Please ensure ZIP CSV contains Centre Code/Centre Name/City/Exam Slot metadata.'
+      });
+    }
+
+    const firstCandidateWithCentreName = candidates.find((candidate) =>
+      resolveCandidateCentreName(candidate, '').trim().length > 0
+    );
+    const inferredCentreName = firstCandidateWithCentreName
+      ? resolveCandidateCentreName(firstCandidateWithCentreName, '')
+      : '';
+
+    const centreNameEqualsCity =
+      String(centreInfo.name || '').trim().toLowerCase() !== '' &&
+      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.city || '').trim().toLowerCase();
+
+    if (inferredCentreName && (!centreInfo.name || centreNameEqualsCity)) {
+      centreInfo.name = inferredCentreName;
     }
     
     // Persist centre info only if we have a valid centre code (comes from JSON or stored data)
@@ -412,7 +581,10 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
           throw new Error('Missing candidateId/applicationNumber or candidateName/fullName');
         }
 
-        const hallTicket = candidate.hallTicketId || candidate.hallTicket || candidate.applicationNumber || candidate.candidateId || candidateId;
+        const hallTicket = resolveCandidateHallTicket(candidate, centreInfo.examSlot);
+        if (!hallTicket) {
+          throw new Error('Missing hall ticket for candidate');
+        }
         const candidateKey = (hallTicket || candidateId).toString();
         uploadedCandidateKeys.add(candidateKey);
 
@@ -476,6 +648,10 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         
         // Create candidate object with face and thumb status tracking
         const normalizedEmail = candidate.emailId || candidate.email || candidate.Email || candidate.EmailId || candidate.emailid;
+        const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
+        const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
+        const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
+        const resolvedCandidateCity = centreInfo.city || centreInfo.city || resolveCandidateCity(candidate, centreInfo.city);
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
@@ -503,9 +679,10 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
           capturedImagePath: null,
           biometricImagePath: null,
           // Centre details
-          centreCode: centreInfo.code,
-          centreName: centreInfo.name,
-          examSlot: centreInfo.examSlot,
+          centreCode: resolvedCandidateCentreCode,
+          centreName: resolvedCentreName,
+          city: resolvedCandidateCity,
+          examSlot: resolvedCandidateExamSlot,
           // Timestamps (initially null)
           imageCaptureTimestamp: null,
           thumbCaptureTimestamp: null,
@@ -661,8 +838,36 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       throw new Error(`Failed to extract ZIP file: ${extractError.message}`);
     }
 
-    // Find candidate data file (CSV or JSON) in the extracted ZIP
-    logger.info('Searching for candidate data file in ZIP');
+    // Read metadata file if present in ZIP (preferred source for centre/city/slot).
+    logger.info('Searching for metadata and candidate data file in ZIP');
+
+    let zipMetadata = null;
+
+    function searchForMetadataFile(dirPath) {
+      const items = fs.readdirSync(dirPath);
+      for (const item of items) {
+        const itemPath = path.join(dirPath, item);
+        const stat = fs.statSync(itemPath);
+
+        if (stat.isFile() && item.toLowerCase() === 'metadata.json') {
+          try {
+            const metadataRaw = fs.readFileSync(itemPath, 'utf8');
+            zipMetadata = JSON.parse(metadataRaw);
+            logger.info('Found metadata.json in ZIP', { path: itemPath });
+          } catch (metadataError) {
+            logger.warn('Failed to parse metadata.json from ZIP', { error: metadataError.message, path: itemPath });
+          }
+          return;
+        }
+
+        if (stat.isDirectory() && !item.startsWith('.')) {
+          searchForMetadataFile(itemPath);
+          if (zipMetadata) return;
+        }
+      }
+    }
+
+    searchForMetadataFile(extractionDir);
 
     let candidateFile = null;
     let fileContent = null;
@@ -684,7 +889,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
             fileType = 'CSV';
             logger.info('Found CSV file in ZIP', { fileName: item, path: itemPath });
             return;
-          } else if (item.toLowerCase().endsWith('.json')) {
+          } else if (item.toLowerCase().endsWith('.json') && item.toLowerCase() !== 'metadata.json') {
             candidateFile = itemPath;
             fileType = 'JSON';
             logger.info('Found JSON file in ZIP', { fileName: item, path: itemPath });
@@ -749,7 +954,20 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT fall back to any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', city: '', examSlot: '' };
+    const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
+    if (tokenCentreInfo) {
+      centreInfo.code = centreInfo.code || tokenCentreInfo.code;
+      centreInfo.name = centreInfo.name || tokenCentreInfo.name;
+      centreInfo.city = centreInfo.city || tokenCentreInfo.city;
+    }
+
+    if (zipMetadata && typeof zipMetadata === 'object') {
+      centreInfo.code = centreInfo.code || String(zipMetadata.centreCode || '').trim();
+      centreInfo.name = centreInfo.name || String(zipMetadata.centreName || '').trim();
+      centreInfo.city = centreInfo.city || String(zipMetadata.city || '').trim();
+      centreInfo.examSlot = centreInfo.examSlot || String(zipMetadata.examSlot || '').trim();
+    }
 
     let candidates = [];
 
@@ -764,13 +982,6 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       } catch (parseError) {
         logger.error('CSV parse error', { error: parseError.message });
         throw new Error(`CSV parsing failed: ${parseError.message}`);
-      }
-      // CSV uploads do not contain centre metadata. Require stored centre info.
-      if (!centreInfo || !centreInfo.code) {
-        return res.status(400).json({
-          successful: false,
-          message: 'Centre information not available. Please login so centre is assigned, or include centre metadata in the uploaded JSON/ZIP.'
-        });
       }
     } else if (fileType === 'JSON') {
       logger.info('Parsing JSON from ZIP');
@@ -801,6 +1012,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         if (jsonData.centre && jsonData.centre.code) {
           centreInfo.code = jsonData.centre.code;
           centreInfo.name = jsonData.centre.name || centreInfo.name || '';
+          centreInfo.city = jsonData.centre.city || jsonData.centre.cityName || centreInfo.city || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
         } else if (!centreInfo || !centreInfo.code) {
           throw new Error('Centre information missing in uploaded JSON and no stored centre assigned. Please login to assign a centre or include centre metadata in the upload.');
@@ -818,6 +1030,55 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         successful: false,
         message: 'No candidates found in extracted file'
       });
+    }
+
+    const firstCandidateWithCity = candidates.find((candidate) =>
+      resolveCandidateCity(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithCity) {
+      centreInfo.city = resolveCandidateCity(firstCandidateWithCity, '').trim();
+    }
+
+    const firstCandidateWithCentreCode = candidates.find((candidate) =>
+      resolveCandidateCentreCode(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithCentreCode) {
+      centreInfo.code = resolveCandidateCentreCode(firstCandidateWithCentreCode, '').trim();
+    }
+
+    const firstCandidateWithExamSlot = candidates.find((candidate) =>
+      resolveCandidateExamSlot(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithExamSlot) {
+      centreInfo.examSlot = resolveCandidateExamSlot(firstCandidateWithExamSlot, '').trim();
+    }
+
+    if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
+      centreInfo.code = tokenCentreInfo.code;
+      centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
+      centreInfo.city = centreInfo.city || tokenCentreInfo.city || '';
+    }
+
+    if (!centreInfo || !String(centreInfo.code || '').trim()) {
+      return res.status(400).json({
+        successful: false,
+        message: 'Centre information not available in uploaded data. Please ensure ZIP CSV contains Centre Code/Centre Name/City/Exam Slot metadata.'
+      });
+    }
+
+    const firstCandidateWithCentreName = candidates.find((candidate) =>
+      resolveCandidateCentreName(candidate, '').trim().length > 0
+    );
+    const inferredCentreName = firstCandidateWithCentreName
+      ? resolveCandidateCentreName(firstCandidateWithCentreName, '')
+      : '';
+
+    const centreNameEqualsCity =
+      String(centreInfo.name || '').trim().toLowerCase() !== '' &&
+      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.city || '').trim().toLowerCase();
+
+    if (inferredCentreName && (!centreInfo.name || centreNameEqualsCity)) {
+      centreInfo.name = inferredCentreName;
     }
 
     // Update centre info
@@ -877,10 +1138,10 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           throw new Error('Missing candidateId/applicationNumber or candidateName/fullName');
         }
 
-        const hallTicket = candidate.hallTicketId || 
-                          candidate.hallTicket || 
-                          candidate['Hall Ticket'] ||
-                          candidateId;
+        const hallTicket = resolveCandidateHallTicket(candidate, centreInfo.examSlot);
+        if (!hallTicket) {
+          throw new Error('Missing hall ticket for candidate');
+        }
 
         const candidateKey = (hallTicket || candidateId).toString();
         uploadedCandidateKeys.add(candidateKey);
@@ -899,19 +1160,32 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         let uploadedImagePath = null;
         let liveImagePath = null;
         
-        // Try to find photo image
-        const photoFileName = `${candidateId}.jpg`;
-        const photoFilePath = `photos/${photoFileName}`;
+        // Try to find photo image (prefer explicit path from CSV)
+        const photoFileFromRow = String(candidate['Photo File'] || candidate.photoFile || '').trim();
+        let photoFilePath = photoFileFromRow.replace(/^\/+/, '');
+        if (!photoFilePath) {
+          const photoFileName = `${candidateId}.jpg`;
+          photoFilePath = `photos/${photoFileName}`;
+        }
         if (fs.existsSync(path.join(extractionDir, photoFilePath))) {
           uploadedImagePath = copyImageFromZIP(photoFilePath, extractionDir, candidateId, 'photo');
         }
         
-        // Try to find signature image  
-        const signatureFilePath = `signatures/${photoFileName}`;
+        // Try to find signature image (prefer explicit path from CSV)
+        const signatureFileFromRow = String(candidate['Signature File'] || candidate.signatureFile || '').trim();
+        let signatureFilePath = signatureFileFromRow.replace(/^\/+/, '');
+        if (!signatureFilePath) {
+          const fallbackPhotoFileName = `${candidateId}.jpg`;
+          signatureFilePath = `signatures/${fallbackPhotoFileName}`;
+        }
         if (fs.existsSync(path.join(extractionDir, signatureFilePath))) {
           liveImagePath = copyImageFromZIP(signatureFilePath, extractionDir, candidateId, 'signature');
         }
 
+        const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
+        const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
+        const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
+        const resolvedCandidateCity = centreInfo.city || resolveCandidateCity(candidate, centreInfo.city);
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
@@ -938,9 +1212,10 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           capturedImagePath: null,
           biometricImagePath: null,
           // Centre details
-          centreCode: centreInfo.code,
-          centreName: centreInfo.name,
-          examSlot: centreInfo.examSlot,
+          centreCode: resolvedCandidateCentreCode,
+          centreName: resolvedCentreName,
+          city: resolvedCandidateCity,
+          examSlot: resolvedCandidateExamSlot,
           // Timestamps
           imageCaptureTimestamp: null,
           thumbCaptureTimestamp: null,

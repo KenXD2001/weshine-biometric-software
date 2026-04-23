@@ -11,6 +11,7 @@ let candidates = [];
 let centreInfo = {
   code: '',
   name: '',
+  city: '',
   examSlot: ''
 };
 
@@ -72,6 +73,7 @@ const convertUtcToIST = (utcTimestamp) => {
     if (loadedCentreInfo.code) {
       centreInfo.code = loadedCentreInfo.code;
       centreInfo.name = loadedCentreInfo.name;
+      centreInfo.city = loadedCentreInfo.city || '';
       centreInfo.examSlot = loadedCentreInfo.examSlot;
     }
     
@@ -88,10 +90,11 @@ const convertUtcToIST = (utcTimestamp) => {
 router.get('/all', (req, res) => {
   try {
     const { hallTicket } = req.query;
+    const normalizedHallTicket = String(hallTicket || '').trim().toLowerCase();
     
     logger.info('Fetching candidate details', { hallTicket, ip: req.ip });
 
-    if (!hallTicket) {
+    if (!normalizedHallTicket) {
       return res.status(400).json({
         successful: false,
         message: 'Hall ticket is required'
@@ -99,7 +102,7 @@ router.get('/all', (req, res) => {
     }
 
     // First check if candidate exists in regular candidates array
-    let candidate = candidates.find(c => c.hallTicket === hallTicket);
+    let candidate = candidates.find(c => String(c.hallTicket || '').trim().toLowerCase() === normalizedHallTicket);
     
     if (!candidate) {
       logger.warn('Candidate not found', { hallTicket, ip: req.ip });
@@ -115,7 +118,7 @@ router.get('/all', (req, res) => {
       if (fs.existsSync(biometricFilePath)) {
         const fileContent = fs.readFileSync(biometricFilePath, 'utf8');
         const biometricData = JSON.parse(fileContent);
-        const biometricCandidate = biometricData.find(c => c.hallTicket === hallTicket);
+        const biometricCandidate = biometricData.find(c => String(c.hallTicket || '').trim().toLowerCase() === normalizedHallTicket);
         
         // If biometric data exists, merge it with candidate data
         if (biometricCandidate) {
@@ -327,7 +330,14 @@ router.get('/counts', (req, res) => {
     // Filter candidates by centre code if provided
     let filteredCandidates = candidates;
     if (centreCode) {
-      filteredCandidates = candidates.filter(c => c.centreCode === centreCode);
+      const normalizedRequestedCentreCode = String(centreCode).trim().toLowerCase();
+      filteredCandidates = candidates.filter((c) => String(c.centreCode || '').trim().toLowerCase() === normalizedRequestedCentreCode);
+
+      if (filteredCandidates.length === 0) {
+        if (centreInfo && String(centreInfo.code || '').trim().toLowerCase() === normalizedRequestedCentreCode) {
+          filteredCandidates = candidates;
+        }
+      }
     }
 
     // Mock count based on exam and slot (or centre)
@@ -359,10 +369,11 @@ router.get('/counts', (req, res) => {
 router.get('/match', (req, res) => {
   try {
     const { hallTicket } = req.query;
+    const normalizedHallTicket = String(hallTicket || '').trim().toLowerCase();
     
     logger.info('Checking if candidate exists', { hallTicket, ip: req.ip });
 
-    if (!hallTicket) {
+    if (!normalizedHallTicket) {
       return res.status(400).json({
         successful: false,
         message: 'Hall ticket is required'
@@ -370,7 +381,7 @@ router.get('/match', (req, res) => {
     }
 
     // Simply check if candidate with this hall ticket exists
-    const candidate = candidates.find(c => c.hallTicket === hallTicket);
+    const candidate = candidates.find(c => String(c.hallTicket || '').trim().toLowerCase() === normalizedHallTicket);
     
     if (!candidate) {
       logger.warn('Candidate not found', { hallTicket, ip: req.ip });
@@ -414,6 +425,7 @@ router.get('/centre-info', (req, res) => {
     const info = {
       centreCode: centreInfo.code || '',
       centreName: centreInfo.name || '',
+      city: centreInfo.city || '',
       examSlot: centreInfo.examSlot || '',
       // Parse exam slot to extract date and session if available
       examDate: centreInfo.examSlot ? [centreInfo.examSlot.split(' ')[0]] : [],
@@ -508,8 +520,26 @@ module.exports = {
   setCentreInfo: (info) => {
     centreInfo.code = info.code;
     centreInfo.name = info.name;
+    centreInfo.city = info.city || '';
     centreInfo.examSlot = info.examSlot;
-    // Auto-save to disk after setting (with candidate counts)
+
+    // Keep existing candidates aligned with the current centre info code
+    if (centreInfo.code) {
+      candidates.forEach((candidate) => {
+        candidate.centreCode = centreInfo.code;
+        if (!candidate.city && centreInfo.city) {
+          candidate.city = centreInfo.city;
+        }
+        if (!candidate.examSlot && centreInfo.examSlot) {
+          candidate.examSlot = centreInfo.examSlot;
+        }
+      });
+    }
+
+    // Auto-save updated candidate list and centre info to disk
+    dataStore.saveCandidates(candidates).catch(err =>
+      logger.error('Failed to auto-save aligned candidates', { error: err.message })
+    );
     dataStore.saveCentreInfo(centreInfo, candidates).catch(err => 
       logger.error('Failed to auto-save centre info', { error: err.message })
     );

@@ -268,22 +268,24 @@ router.post('/trigger-immediate', async (req, res) => {
     }
 
     const candidates = candidatesModule.getCandidates();
-    const hallTickets = candidates.map((candidate) => candidate.hallTicket).filter(Boolean);
+    const candidateLookupKeys = candidates
+      .map((candidate) => candidate.id || candidate.hallTicket)
+      .filter(Boolean);
 
     logger.info('Fetching candidate biometric records from cloud', {
       requestId,
       totalLocalCandidates: candidates.length,
-      validHallTickets: hallTickets.length,
-      hallTickets: hallTickets.slice(0, 10), // Log first 10 for brevity
+      validLookupKeys: candidateLookupKeys.length,
+      lookupKeys: candidateLookupKeys.slice(0, 10), // Log first 10 for brevity
       timestamp: new Date().toISOString()
     });
 
-    const cloudResponse = await syncService.fetchCloudBiometricRecords(hallTickets);
+    const cloudResponse = await syncService.fetchCloudBiometricRecords(candidateLookupKeys);
     const records = Array.isArray(cloudResponse.records) ? cloudResponse.records : [];
 
     logger.info('Cloud response received', {
       requestId,
-      totalRequested: cloudResponse.totalRequested || hallTickets.length,
+      totalRequested: cloudResponse.totalRequested || candidateLookupKeys.length,
       totalFound: cloudResponse.foundCount || 0,
       faceCount: cloudResponse.faceCount || 0,
       thumbCount: cloudResponse.thumbCount || 0,
@@ -292,8 +294,18 @@ router.post('/trigger-immediate', async (req, res) => {
       timestamp: new Date().toISOString()
     });
 
+    const candidateMap = new Map();
+    candidates.forEach((candidate) => {
+      if (candidate.id) {
+        candidateMap.set(String(candidate.id), candidate);
+      }
+      if (candidate.hallTicket) {
+        candidateMap.set(String(candidate.hallTicket), candidate);
+      }
+    });
+
     const summary = {
-      totalLocalCandidates: hallTickets.length,
+      totalLocalCandidates: candidateLookupKeys.length,
       totalCloudCandidates: records.filter(record => record.hasBiometric).length,
       totalMissingInCloud: 0,
       totalSynced: 0,
@@ -308,7 +320,7 @@ router.post('/trigger-immediate', async (req, res) => {
     let totalDownloadSize = 0;
 
     for (const record of records) {
-      const candidate = candidates.find((c) => c.hallTicket === record.hallTicket);
+      const candidate = candidateMap.get(String(record.hallTicket));
       const detail = {
         hallTicket: record.hallTicket,
         hasBiometricInCloud: record.hasBiometric,

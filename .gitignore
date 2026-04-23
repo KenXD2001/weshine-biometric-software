@@ -92,6 +92,7 @@ Thumbs.db
 
 # Generated data files (keep structure, ignore content)
 local_backend/data/*.json
+local_backend/data/candidates-data/
 !local_backend/data/.gitkeep
 
 # Uploads (keep directory structure)

@@ -46,6 +46,14 @@ type SyncResultData = {
   [key: string]: unknown;
 };
 
+type CentreInfoData = {
+  centreCode: string;
+  centreName: string;
+  city?: string;
+  examSlot?: string;
+  [key: string]: unknown;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_URL;
 
 if (!API_BASE_URL) {
@@ -186,6 +194,16 @@ export const candidateService = {
       throw new Error('Failed to fetch candidate counts');
     }
     
+    return response.json();
+  },
+
+  getCentreInfo: async (): Promise<{ successful: boolean; data?: CentreInfoData; message?: string }> => {
+    const response = await fetch(createApiUrl('/candidate-details/centre-info'));
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch centre info');
+    }
+
     return response.json();
   },
 };

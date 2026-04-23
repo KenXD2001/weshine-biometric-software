@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import ExaminationDetails from '../components/ExaminationDetails';
 import BiometricDetails from '../components/BiometricDetails';
 import SessionDetails from '../components/SessionDetails';
@@ -6,7 +6,7 @@ import CandidateDetails from '../components/CandidateDetails';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ToastContainer from '../components/Toast/ToastContainer';
 import { useToast } from '../hooks/useToast';
-import { authService, biometricService, uploadService } from '../services/api';
+import { authService, biometricService, candidateService, uploadService } from '../services/api';
 
 type BiometricDeviceApiResponse = {
   ISOTemplateBase64?: string;
@@ -25,6 +25,8 @@ const BiometricSoftware: React.FC = () => {
   
   const [centreCode, setCentreCode] = useState(userData?.centreCode || '');
   const [centreName, setCentreName] = useState(userData?.centreName || '');
+  const [city, setCity] = useState(userData?.city || userData?.cityName || '');
+  const [examSlot, setExamSlot] = useState(userData?.examSlot || '');
   const [hallTicket, setHallTicket] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [email, setEmail] = useState('');
@@ -49,6 +51,33 @@ const BiometricSoftware: React.FC = () => {
   const [thumbCaptureTimestamp, setThumbCaptureTimestamp] = useState('');
   const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const loadCentreInfo = async () => {
+    try {
+      const result = await candidateService.getCentreInfo();
+      if (result.successful && result.data) {
+        setCentreCode(result.data.centreCode || userData?.centreCode || '');
+        setCentreName(result.data.centreName || userData?.centreName || '');
+        setCity((result.data.city as string) || userData?.city || userData?.cityName || '');
+        setExamSlot((result.data.examSlot as string) || userData?.examSlot || '');
+      }
+    } catch (error) {
+      console.warn('Failed to load centre info, using login user data fallback', error);
+    }
+  };
+
+  useEffect(() => {
+    loadCentreInfo();
+  }, []);
+
+  useEffect(() => {
+    const handleCandidateDataUpdated = () => {
+      loadCentreInfo();
+    };
+
+    window.addEventListener('candidateDataUpdated', handleCandidateDataUpdated);
+    return () => window.removeEventListener('candidateDataUpdated', handleCandidateDataUpdated);
+  }, []);
 
   const { toasts, success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo, removeToast } = useToast();
 
@@ -186,6 +215,8 @@ const BiometricSoftware: React.FC = () => {
         window.dispatchEvent(new Event('candidateDataUpdated'));
         setCentreCode('');
         setCentreName('');
+        setCity('');
+        setExamSlot('');
         setHallTicket('');
         setCandidateName('');
         setEmail('');
@@ -215,6 +246,10 @@ const BiometricSoftware: React.FC = () => {
           setCentreCode={setCentreCode}
           centreName={centreName}
           setCentreName={setCentreName}
+          city={city}
+          setCity={setCity}
+          examSlot={examSlot}
+          setExamSlot={setExamSlot}
         />
 
         <BiometricDetails
