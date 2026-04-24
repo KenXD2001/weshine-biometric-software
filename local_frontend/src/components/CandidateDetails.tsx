@@ -22,6 +22,7 @@ interface CandidateDetailsProps {
   capturedImages: { signature: boolean; uploaded: boolean; camera: boolean; live: boolean; thumb: boolean; };
   onNewCandidate: () => void;
   onResetSystem: () => void;
+  onCandidateMetadataLoaded: (metadata: { slot: string; userExamApplicationId: string }) => void;
 }
 
 const CandidateDetails: React.FC<CandidateDetailsProps> = ({
@@ -38,6 +39,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   onSubmit,
   onNewCandidate,
   onResetSystem,
+  onCandidateMetadataLoaded,
   onCandidateLoaded,
   setImagePaths,
   setCapturedImages,
@@ -87,12 +89,19 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
         }
 
         onCandidateLoaded(true);
+        onCandidateMetadataLoaded({
+          slot: String(candidate.examSlot || candidate.slot || ''),
+          userExamApplicationId: String(candidate.userExamApplicationId || candidate.applicationNumber || '')
+        });
       } else {
         onCandidateLoaded(false);
+        onCandidateMetadataLoaded({ slot: '', userExamApplicationId: '' });
         console.log('[CandidateDetails] Candidate not found or no data', { hallTicket });
       }
     } catch (error) {
       console.error('Error fetching candidate data:', error);
+      onCandidateLoaded(false);
+      onCandidateMetadataLoaded({ slot: '', userExamApplicationId: '' });
     }
   };
 

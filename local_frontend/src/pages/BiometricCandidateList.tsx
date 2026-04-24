@@ -17,6 +17,9 @@ interface Candidate {
   liveImagePath?: string;
   capturedImagePath?: string;
   biometricImagePath?: string;
+  city?: string;
+  examSlot?: string;
+  slot?: string;
   centreCode: string;
   centreName: string;
   imageCaptureTimestamp?: string;
@@ -25,6 +28,13 @@ interface Candidate {
   imageCapturedAt?: string;
   thumbCapturedAt?: string;
   submittedAt?: string;
+}
+
+interface CentreInfo {
+  code?: string;
+  name?: string;
+  city?: string;
+  examSlot?: string;
 }
 
 const BiometricCandidateList: React.FC = () => {
@@ -41,6 +51,7 @@ const BiometricCandidateList: React.FC = () => {
   const [syncInProgress, setSyncInProgress] = useState(false);
   const [syncStatusText, setSyncStatusText] = useState('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [centreInfo, setCentreInfo] = useState<CentreInfo>({});
   const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
   const exportButtonRef = React.useRef<HTMLDivElement>(null);
   const refreshButtonRef = React.useRef<HTMLDivElement>(null);
@@ -66,6 +77,9 @@ const BiometricCandidateList: React.FC = () => {
           liveImagePath: candidate.liveImagePath,
           capturedImagePath: candidate.capturedImagePath,
           biometricImagePath: candidate.biometricImagePath,
+          city: candidate.city,
+          examSlot: candidate.examSlot || candidate.slot || '',
+          slot: candidate.slot || candidate.examSlot || '',
           centreCode: candidate.centreCode,
           centreName: candidate.centreName,
           imageCaptureTimestamp: candidate.imageCaptureTimestamp,
@@ -81,10 +95,23 @@ const BiometricCandidateList: React.FC = () => {
     }
   }, []);
 
+  const fetchCentreInfo = useCallback(async () => {
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/candidate-details/centre-info`);
+      const data = await response.json();
+      if (data.successful) {
+        setCentreInfo(data.data || {});
+      }
+    } catch (error) {
+      console.error('Error fetching centre info:', error);
+    }
+  }, []);
+
   // Initial fetch
   useEffect(() => {
     fetchCandidates();
-  }, [fetchCandidates]);
+    fetchCentreInfo();
+  }, [fetchCandidates, fetchCentreInfo]);
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -231,6 +258,20 @@ const BiometricCandidateList: React.FC = () => {
     URL.revokeObjectURL(url);
   };
 
+  const getPdfExportFileName = () => {
+    const city = filteredCandidates[0]?.city || centreInfo.city || filteredCandidates[0]?.centreName || 'Unknown_City';
+    const slotLabel = filteredCandidates[0]?.examSlot || filteredCandidates[0]?.slot || centreInfo.examSlot || 'Unknown_Slot';
+    const clean = (value: string) =>
+      value
+        .trim()
+        .replace(/\s+/g, '_')
+        .replace(/[^a-zA-Z0-9_-]/g, '');
+
+    const cityPart = clean(city || 'Unknown_City');
+    const slotPart = clean(slotLabel || 'Unknown_Slot');
+    return `${cityPart}_${slotPart}_PDF_Export.pdf`;
+  };
+
   const handleExportCSV = async (format: 'csv' | 'pdf' | 'json') => {
     if (isExporting) return;
     setIsExporting(true);
@@ -290,15 +331,8 @@ const BiometricCandidateList: React.FC = () => {
       }
 
       const blob = await response.blob();
-      const filename = 'biometric-candidate-list.pdf';
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      const filename = getPdfExportFileName();
+      await downloadBlob(blob, filename, 'application/pdf;charset=utf-8;');
     } catch (error) {
       console.error('Export error:', error);
       alert('Export failed. See console for details.');

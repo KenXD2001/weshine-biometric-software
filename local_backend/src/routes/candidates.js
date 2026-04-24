@@ -203,6 +203,31 @@ router.get('/all/filters', (req, res) => {
   }
 });
 
+// Get current centre information for filename generation and context
+router.get('/centre-info', (req, res) => {
+  try {
+    res.json({
+      successful: true,
+      data: {
+        code: centreInfo.code || '',
+        name: centreInfo.name || '',
+        city: centreInfo.city || '',
+        examSlot: centreInfo.examSlot || ''
+      }
+    });
+  } catch (error) {
+    logger.error('Error fetching centre info', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip
+    });
+    res.status(500).json({
+      successful: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
 // Helper to render HTML rows in export template
 const resolveImageUrl = (imgPath) => {
   if (!imgPath) return '';

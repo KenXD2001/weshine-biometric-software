@@ -269,7 +269,7 @@ router.post('/trigger-immediate', async (req, res) => {
 
     const candidates = candidatesModule.getCandidates();
     const candidateLookupKeys = candidates
-      .map((candidate) => candidate.id || candidate.hallTicket)
+      .map((candidate) => candidate.hallTicket)
       .filter(Boolean);
 
     logger.info('Fetching candidate biometric records from cloud', {

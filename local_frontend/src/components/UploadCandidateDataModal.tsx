@@ -21,7 +21,7 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const MIN_FILE_SIZE = 10 * 1024; // 10KB
-  const MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+  const MAX_FILE_SIZE = 300 * 1024 * 1024; // 300MB
 
   const validateFile = (file: File): boolean => {
     // Check if file is a zip
@@ -37,7 +37,7 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      setError('File size must not exceed 100MB');
+      setError('File size must not exceed 300MB');
       return false;
     }
 
@@ -194,7 +194,7 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
 
           {/* File Size Requirements */}
           <div className="mt-4 text-xs text-gray-500 text-center">
-            <p>Allowed File size: min 10KB, max 100MB</p>
+            <p>Allowed File size: min 10KB, max 300MB</p>
             <p>Only ZIP files are supported</p>
           </div>
         </div>

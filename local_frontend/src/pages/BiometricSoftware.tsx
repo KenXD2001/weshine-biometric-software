@@ -47,6 +47,8 @@ const BiometricSoftware: React.FC = () => {
     biometricImagePath: ''
   });
   const [capturedImage, setCapturedImage] = useState(''); // For webcam captures
+  const [candidateSlot, setCandidateSlot] = useState('');
+  const [candidateApplicationId, setCandidateApplicationId] = useState('');
   const [thumbTemplate, setThumbTemplate] = useState({ isoTemplateBase64: '', templateBase64: '' });
   const [thumbCaptureTimestamp, setThumbCaptureTimestamp] = useState('');
   const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
@@ -143,7 +145,13 @@ const BiometricSoftware: React.FC = () => {
 
       // Submit captured webcam face image (live capture)
       if (capturedImage) {
-        faceResult = await biometricService.submitFaceCapture(submitHallTicket, capturedImage);
+        faceResult = await biometricService.submitFaceCapture(
+          submitHallTicket,
+          capturedImage,
+          undefined,
+          candidateSlot || examSlot || undefined,
+          candidateApplicationId || undefined
+        );
       } else {
         toastInfo('No Webcam Capture', 'No captured webcam image available yet.');
       }
@@ -156,7 +164,9 @@ const BiometricSoftware: React.FC = () => {
           thumbTemplate.isoTemplateBase64,
           thumbTemplate.templateBase64,
           thumbCaptureTimestamp,
-          deviceApiResponse || undefined
+          deviceApiResponse || undefined,
+          candidateSlot || examSlot || undefined,
+          candidateApplicationId || undefined
         );
       } else {
         toastInfo('No Thumb Capture', 'No captured thumb data available yet.');
@@ -197,6 +207,8 @@ const BiometricSoftware: React.FC = () => {
     setCapturedImages({ signature: false, uploaded: false, camera: false, live: false, thumb: false });
     setImagePaths({ uploadedImagePath: '', liveImagePath: '', biometricImagePath: '' });
     setCapturedImage('');
+    setCandidateSlot('');
+    setCandidateApplicationId('');
     setThumbTemplate({ isoTemplateBase64: '', templateBase64: '' });
     setThumbCaptureTimestamp('');
     setDeviceApiResponse(null);
@@ -285,6 +297,10 @@ const BiometricSoftware: React.FC = () => {
           setCapturedImage={setCapturedImage}
           capturedImages={capturedImages}
           onCandidateLoaded={setIsCandidateLoaded}
+          onCandidateMetadataLoaded={({ slot, userExamApplicationId }) => {
+            setCandidateSlot(slot || '');
+            setCandidateApplicationId(userExamApplicationId || '');
+          }}
           onSubmit={handleSubmit}
           isSubmitting={isSubmitting}
           onNewCandidate={handleNewCandidate}

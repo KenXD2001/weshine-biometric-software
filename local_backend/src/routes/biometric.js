@@ -83,7 +83,8 @@ async function syncBiometricDataToCloud(biometricPayload) {
     // Add metadata as JSON string
     formData.append('metadata', JSON.stringify({
       hallTicket: biometricPayload.hallTicket,
-      candidateId: biometricPayload.candidateId,
+      slot: biometricPayload.slot || biometricPayload.examSlot || null,
+      candidateId: biometricPayload.userExamApplicationId || biometricPayload.candidateId,
       candidateName: biometricPayload.candidateName,
       emailId: biometricPayload.emailId,
       phone: biometricPayload.phone,
@@ -166,10 +167,12 @@ async function syncBiometricDataToCloud(biometricPayload) {
 // Submit face capture data
 router.post('/submit-face-capture', async (req, res) => {
   try {
-    const { faceData, hallTicket } = req.body;
+    const { faceData, hallTicket, slot, userExamApplicationId } = req.body;
     
     logger.info('Submitting face capture', { 
       hallTicket,
+      slot,
+      userExamApplicationId,
       ip: req.ip 
     });
 
@@ -233,9 +236,10 @@ router.post('/submit-face-capture', async (req, res) => {
           gender: candidate.gender || 'other',
           centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
           centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-          examSlot: candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
+          examSlot: candidate.examSlot || candidate.slot || (require('./candidates').getCentreInfo().examSlot || ''),
+          slot: slot || candidate.slot || candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
           examId: candidate.examId || '',
-          userExamApplicationId: candidate.userExamApplicationId || '',
+          userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
           timestamp: candidate.imageCaptureTimestamp,
           faceData: faceData,
           thumbData: null,
@@ -271,7 +275,7 @@ router.post('/submit-face-capture', async (req, res) => {
 // Submit thumb capture data
 router.post('/submit-thumb-capture', async (req, res) => {
   try {
-    const { thumbData, hallTicket, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
+    const { thumbData, hallTicket, slot, userExamApplicationId, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
     const rawDeviceResponse = deviceApiResponse || secugenApiResponse;
     
     logger.info('Submitting thumb capture', { 
@@ -361,9 +365,10 @@ router.post('/submit-thumb-capture', async (req, res) => {
           gender: candidate.gender || 'other',
           centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
           centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-          examSlot: candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
+          examSlot: candidate.examSlot || candidate.slot || (require('./candidates').getCentreInfo().examSlot || ''),
+          slot: slot || candidate.slot || candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
           examId: candidate.examId || '',
-          userExamApplicationId: candidate.userExamApplicationId || '',
+          userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
           timestamp: candidate.thumbCaptureTimestamp,
           faceData: null,
           thumbData: thumbData,
@@ -592,6 +597,7 @@ router.post('/sync-all-to-cloud', async (req, res) => {
         const syncResult = await syncBiometricDataToCloud({
           // Candidate Identification
           hallTicket: candidate.hallTicket,
+          slot: candidate.slot || candidate.examSlot || '',
           candidateId: candidate.id,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -614,7 +620,7 @@ router.post('/sync-all-to-cloud', async (req, res) => {
           
           // Exam Information
           examId: candidate.examId || '',
-          userExamApplicationId: candidate.userExamApplicationId || '',
+          userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || '',
           
           // Sync Metadata
           timestamp: candidate.thumbCaptureTimestamp || new Date().toISOString(),

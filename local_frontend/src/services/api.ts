@@ -384,7 +384,7 @@ export const biometricService = {
     }
   },
 
-  submitFaceCapture: async (hallTicket: string, faceData: string, captureTimestamp?: string): Promise<{ successful: boolean; message: string }> => {
+  submitFaceCapture: async (hallTicket: string, faceData: string, captureTimestamp?: string, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-face-capture`, {
         method: 'POST',
@@ -394,6 +394,8 @@ export const biometricService = {
         body: JSON.stringify({
           hallTicket,
           faceData,
+          slot: slot || null,
+          userExamApplicationId: userExamApplicationId || null,
           captureTimestamp: captureTimestamp || new Date().toISOString()
         })
       });
@@ -411,7 +413,7 @@ export const biometricService = {
     }
   },
 
-  submitThumbCapture: async (hallTicket: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse): Promise<{ successful: boolean; message: string }> => {
+  submitThumbCapture: async (hallTicket: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-thumb-capture`, {
         method: 'POST',
@@ -421,6 +423,8 @@ export const biometricService = {
         body: JSON.stringify({
           hallTicket,
           thumbData,
+          slot: slot || null,
+          userExamApplicationId: userExamApplicationId || null,
           ISOTemplateBase64: isoTemplateBase64 || null,
           TemplateBase64: templateBase64 || null,
           deviceApiResponse: deviceApiResponse || null,
