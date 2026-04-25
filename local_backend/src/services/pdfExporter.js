@@ -47,6 +47,74 @@ const getBrowserExecutablePath = () => {
   return undefined;
 };
 
+const getLocalImageFilePath = (imgPath) => {
+  if (!imgPath) return null;
+  let normalized = String(imgPath || '').trim();
+  if (!normalized) return null;
+
+  if (normalized.startsWith('http://') || normalized.startsWith('https://') || normalized.startsWith('data:')) {
+    return null;
+  }
+
+  if (normalized.startsWith('file://')) {
+    normalized = normalized.replace(/^file:\/\//, '');
+  }
+
+  const appRoot = path.join(__dirname, '../../');
+
+  if (normalized.startsWith('/data/')) {
+    return path.join(appRoot, normalized.replace(/^\//, ''));
+  }
+  if (normalized.startsWith('data/')) {
+    return path.join(appRoot, normalized);
+  }
+
+  if (normalized.startsWith('/uploads/')) {
+    const uploadRoot = process.resourcesPath ? path.join(process.resourcesPath, 'uploads') : path.join(appRoot, 'uploads');
+    return path.join(uploadRoot, normalized.replace(/^\/uploads\//, ''));
+  }
+  if (normalized.startsWith('uploads/')) {
+    const uploadRoot = process.resourcesPath ? path.join(process.resourcesPath, 'uploads') : path.join(appRoot, 'uploads');
+    return path.join(uploadRoot, normalized.replace(/^uploads\//, ''));
+  }
+
+  return null;
+};
+
+const getMimeTypeFromExtension = (extension) => {
+  switch ((extension || '').toLowerCase()) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'gif':
+      return 'image/gif';
+    case 'bmp':
+      return 'image/bmp';
+    case 'webp':
+      return 'image/webp';
+    default:
+      return 'application/octet-stream';
+  }
+};
+
+const getImageDataUrl = (imgPath) => {
+  const filePath = getLocalImageFilePath(imgPath);
+  if (!filePath || !fs.existsSync(filePath)) {
+    return null;
+  }
+
+  try {
+    const buffer = fs.readFileSync(filePath);
+    const ext = path.extname(filePath).replace('.', '').toLowerCase() || 'png';
+    const mime = getMimeTypeFromExtension(ext);
+    return `data:${mime};base64,${buffer.toString('base64')}`;
+  } catch (error) {
+    return null;
+  }
+};
+
 const getISTDateTime = () => {
   const now = new Date();
   const utcMillis = now.getTime() + now.getTimezoneOffset() * 60000;
@@ -87,7 +155,12 @@ const resolveImageUrl = (imgPath) => {
   const trimmed = String(imgPath || '').trim();
   if (!trimmed) return '';
 
-  if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+  const dataUrl = getImageDataUrl(trimmed);
+  if (dataUrl) {
+    return dataUrl;
+  }
+
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('data:')) {
     return trimmed;
   }
 
