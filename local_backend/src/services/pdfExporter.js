@@ -2,6 +2,51 @@ const fs = require('fs');
 const path = require('path');
 const puppeteer = require('puppeteer');
 
+const tryRequireElectron = () => {
+  try {
+    return require('electron');
+  } catch (err) {
+    return null;
+  }
+};
+
+const getElectronBrowserWindow = async () => {
+  const electron = tryRequireElectron();
+  if (!electron || !electron.app || !electron.BrowserWindow) {
+    return null;
+  }
+
+  if (!electron.app.isReady()) {
+    await electron.app.whenReady();
+  }
+
+  return electron.BrowserWindow;
+};
+
+const getBrowserExecutablePath = () => {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+  if (process.env.CHROME_PATH) {
+    return process.env.CHROME_PATH;
+  }
+
+  try {
+    const execPath = puppeteer.executablePath && puppeteer.executablePath();
+    if (execPath && fs.existsSync(execPath)) {
+      return execPath;
+    }
+  } catch (err) {
+    // ignore
+  }
+
+  if (process.versions && process.versions.electron && process.execPath && fs.existsSync(process.execPath)) {
+    return process.execPath;
+  }
+
+  return undefined;
+};
+
 const getISTDateTime = () => {
   const now = new Date();
   const utcMillis = now.getTime() + now.getTimezoneOffset() * 60000;
@@ -89,19 +134,69 @@ const getTemplateHtml = () => {
   return fs.readFileSync(templatePath, 'utf8');
 };
 
-const generatePdfBuffer = async (html) => {
-  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-setuid-sandbox'] });
-  const page = await browser.newPage();
-  await page.setContent(html, { waitUntil: 'networkidle0' });
+const createPdfWithElectron = async (html) => {
+  const BrowserWindow = await getElectronBrowserWindow();
+  if (!BrowserWindow) return null;
 
-  const pdfBuffer = await page.pdf({
-    format: 'A4',
-    landscape: true,
-    printBackground: true,
-    margin: { top: '12mm', bottom: '10mm', left: '8mm', right: '8mm' }
+  const pdfWindow = new BrowserWindow({
+    show: false,
+    webPreferences: {
+      sandbox: false,
+      offscreen: true,
+      nodeIntegration: false,
+      contextIsolation: true,
+    }
   });
 
-  await browser.close();
+  await pdfWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+
+  const pdfBuffer = await pdfWindow.webContents.printToPDF({
+    marginsType: 1,
+    printBackground: true,
+    landscape: true,
+    pageSize: 'A4'
+  });
+
+  pdfWindow.close();
+  return pdfBuffer;
+};
+
+const generatePdfBuffer = async (html) => {
+  let pdfBuffer = null;
+
+  try {
+    pdfBuffer = await createPdfWithElectron(html);
+  } catch (err) {
+    // If Electron-based PDF generation fails, fall back to Puppeteer.
+    console.warn('Electron PDF generation fallback triggered:', err.message || err);
+    pdfBuffer = null;
+  }
+
+  if (!pdfBuffer) {
+    const browserOptions = {
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+      ignoreHTTPSErrors: true,
+      timeout: 60000,
+    };
+
+    const executablePath = getBrowserExecutablePath();
+    if (executablePath) {
+      browserOptions.executablePath = executablePath;
+    }
+
+    const browser = await puppeteer.launch(browserOptions);
+    const page = await browser.newPage();
+    await page.setContent(html, { waitUntil: 'networkidle0' });
+
+    pdfBuffer = await page.pdf({
+      format: 'A4',
+      landscape: true,
+      printBackground: true,
+      margin: { top: '12mm', bottom: '10mm', left: '8mm', right: '8mm' }
+    });
+
+    await browser.close();
+  }
 
   const buffer = Buffer.isBuffer(pdfBuffer) ? pdfBuffer : Buffer.from(pdfBuffer);
   const signature = buffer.slice(0, 4).toString('ascii');
