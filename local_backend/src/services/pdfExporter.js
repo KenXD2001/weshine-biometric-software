@@ -41,10 +41,8 @@ const getBrowserExecutablePath = () => {
     // ignore
   }
 
-  if (process.versions && process.versions.electron && process.execPath && fs.existsSync(process.execPath)) {
-    return process.execPath;
-  }
-
+  // Do NOT use the Electron executable as a Puppeteer browser — it causes
+  // immediate target close errors. Only allow system Chrome/Chromium paths.
   return undefined;
 };
 
@@ -320,10 +318,11 @@ const createPdfWithPuppeteer = async (html) => {
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
-        '--single-process',
         '--no-first-run',
         '--no-default-browser-check',
+        '--disable-extensions',
       ],
+      headless: true,
       ignoreHTTPSErrors: true,
       timeout: 60000,
     };
@@ -356,54 +355,130 @@ const createPdfWithPuppeteer = async (html) => {
 
 const createTextOnlyPdf = (candidateList) => {
   try {
-    logger.debug('Falling back to text-only PDF generation via jsPDF');
+    logger.debug('Falling back to full PDF generation via jsPDF with images');
     const { jsPDF } = require('jspdf');
-    const { default: autoTable } = require('jspdf-autotable');
+    const autoTableModule = require('jspdf-autotable');
+    const autoTable = autoTableModule.default || autoTableModule;
+
+    if (typeof autoTable !== 'function') {
+      throw new Error('jspdf-autotable did not export a callable function');
+    }
 
     const doc = new jsPDF('landscape', 'mm', 'a4');
     
     // Title
     doc.setFontSize(16);
-    doc.text('Biometric Candidate List', doc.internal.pageSize.getWidth() / 2, 15, { align: 'center' });
+    doc.text('Biometric Candidate List', doc.internal.pageSize.getWidth() / 2, 12, { align: 'center' });
     
-    // Prepare table data
-    const tableData = candidateList.map(c => [
-      c.hallTicket || '-',
-      c.candidateName || '-',
-      c.emailId || '-',
-      c.gender || '-',
-      c.biometricStatus || '-',
-      convertUtcToIST(c.imageCaptureTimestamp) || '-',
-    ]);
-
-    // Add table
-    autoTable(doc, {
-      head: [['Hall Ticket', 'Candidate', 'Email', 'Gender', 'Status', 'Capture Time']],
-      body: tableData,
-      startY: 25,
-      theme: 'grid',
-      margin: { top: 10, right: 10, bottom: 10, left: 10 },
-      styles: { fontSize: 8, cellPadding: 2 },
-      headStyles: { fillColor: [50, 50, 50], textColor: [255, 255, 255] },
+    // Prepare table data with all columns matching the HTML template
+    const tableData = candidateList.map(c => {
+      const signatureUrl = resolveImageUrl(c.uploadedImagePath || c.liveImagePath);
+      const photoUrl = resolveImageUrl(c.liveImagePath || c.uploadedImagePath);
+      const capturedPhotoUrl = resolveImageUrl(c.capturedImagePath);
+      const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
+      
+      return [
+        c.hallTicket || '-',
+        c.candidateName || '-',
+        c.emailId || '-',
+        c.gender || '-',
+        signatureUrl ? '[Img]' : '-',
+        photoUrl ? '[Img]' : '-',
+        capturedPhotoUrl ? '[Img]' : '-',
+        capturedThumbUrl ? '[Img]' : '-',
+        c.biometricStatus || '-',
+        (convertUtcToIST(c.imageCaptureTimestamp) || '-') + '\n' +
+        (convertUtcToIST(c.thumbCaptureTimestamp) || '-') + '\n' +
+        (convertUtcToIST(c.submitTimestamp) || '-'),
+      ];
     });
 
-    // Footer
-    const pageCount = doc.internal.getPages().length;
+    // Add table with all 10 columns
+    autoTable(doc, {
+      head: [[
+        'Hall\nTicket',
+        'Candidate\nName',
+        'Email',
+        'Gender',
+        'Signature',
+        'Photo',
+        'Captured\nPhoto',
+        'Captured\nThumb',
+        'Status',
+        'Image Capture / Thumb / Submit\nTimestamp'
+      ]],
+      body: tableData,
+      startY: 20,
+      theme: 'grid',
+      margin: { top: 8, right: 8, bottom: 12, left: 8 },
+      styles: { 
+        fontSize: 7,
+        cellPadding: 1.5,
+        textColor: [0, 0, 0],
+        halign: 'center',
+        valign: 'middle',
+      },
+      headStyles: { 
+        fillColor: [30, 30, 30], 
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        fontSize: 7,
+      },
+      bodyStyles: {
+        fontSize: 6,
+      },
+      columnStyles: {
+        4: { halign: 'center' },
+        5: { halign: 'center' },
+        6: { halign: 'center' },
+        7: { halign: 'center' },
+      },
+      didDrawCell: function(data) {
+        // For image columns, attempt to embed actual images
+        const { cell, column, row, section } = data;
+        if (section === 'body' && [4, 5, 6, 7].includes(column.index)) {
+          const candidate = candidateList[row.index];
+          if (!candidate) return;
+          
+          let imgUrl = null;
+          if (column.index === 4) imgUrl = resolveImageUrl(candidate.uploadedImagePath || candidate.liveImagePath);
+          if (column.index === 5) imgUrl = resolveImageUrl(candidate.liveImagePath || candidate.uploadedImagePath);
+          if (column.index === 6) imgUrl = resolveImageUrl(candidate.capturedImagePath);
+          if (column.index === 7) imgUrl = resolveImageUrl(candidate.biometricImagePath);
+          
+          if (imgUrl && imgUrl.startsWith('data:')) {
+            try {
+              const { x, y, width, height } = cell;
+              doc.addImage(imgUrl, 'JPEG', x + 1, y + 1, width - 2, height - 2);
+            } catch (imgErr) {
+              logger.debug('Could not embed image in PDF cell', { error: imgErr.message });
+            }
+          }
+        }
+      },
+    });
+
+    // Footer with generation timestamp and page count
+    const pageCount = typeof doc.getNumberOfPages === 'function'
+      ? doc.getNumberOfPages()
+      : (doc.internal && typeof doc.internal.getNumberOfPages === 'function'
+        ? doc.internal.getNumberOfPages()
+        : 1);
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
-      doc.setFontSize(8);
+      doc.setFontSize(7);
       doc.text(
         `Generated: ${getISTDateTime()} IST | Page ${i} of ${pageCount}`,
         doc.internal.pageSize.getWidth() / 2,
-        doc.internal.pageSize.getHeight() - 5,
+        doc.internal.pageSize.getHeight() - 6,
         { align: 'center' }
       );
     }
 
-    logger.info('Successfully generated text-only PDF via jsPDF');
+    logger.info('Successfully generated full PDF via jsPDF with images');
     return doc.output('arraybuffer');
   } catch (error) {
-    logger.error('Text-only PDF generation failed', { error: error.message });
+    logger.error('Full PDF generation via jsPDF failed', { error: error.message });
     return null;
   }
 };
