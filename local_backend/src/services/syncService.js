@@ -65,6 +65,18 @@ class SyncService {
     let imageFilePath = null; // Declare at function scope
     
     try {
+      // Skip if already successfully synced — prevents race conditions where the
+      // periodic scheduler fires while an immediate sync is still in flight.
+      const existingStatus = this.syncStateManager.getCandidateSyncStatus(candidateData.hallTicket);
+      if (existingStatus?.[biometricType]?.synced === true) {
+        logger.info('Skipping biometric sync: already synced', {
+          hallTicket: candidateData.hallTicket,
+          biometricType,
+          cloudId: existingStatus[biometricType].cloudId
+        });
+        return { success: true, skipped: true, cloudId: existingStatus[biometricType].cloudId };
+      }
+
       logger.info('Starting biometric sync', {
         syncId,
         hallTicket: candidateData.hallTicket,
@@ -72,12 +84,13 @@ class SyncService {
         localBackendId: this.syncStateManager.localBackendId
       });
 
-      // Update sync state to "in progress"
+      // Mark as in-progress — do NOT reset retryCount here.
+      // retryCount is only incremented by markAsFailed on actual failure.
+      // Resetting it to 0 on every attempt was causing infinite retry loops.
       this.syncStateManager.updateSyncStatus(candidateData.hallTicket, biometricType, {
         syncId,
         synced: false,
-        lastAttempt: new Date().toISOString(),
-        retryCount: 0
+        lastAttempt: new Date().toISOString()
       });
 
       // Prepare image file - use existing saved image path first
@@ -108,35 +121,54 @@ class SyncService {
         }
       }
 
-      if (!imageFilePath && candidateData.faceData && biometricType === 'face') {
-        // Fallback: create image from base64 data
-        imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateData.hallTicket);
-        logger.debug('Created image file from base64', {
-          hallTicket: candidateData.hallTicket,
-          biometricType,
-          imagePath: imageFilePath
-        });
-      } else if (candidateData.thumbData && biometricType === 'thumb') {
-        // Fallback: create image from base64 data
-        imageFilePath = this.prepareImageFile(candidateData.thumbData, 'thumb', candidateData.hallTicket);
-        logger.debug('Created image file from base64', {
-          hallTicket: candidateData.hallTicket,
-          biometricType,
-          imagePath: imageFilePath
-        });
-      } else {
-        logger.warn('No image data available for sync', {
+      if (!imageFilePath) {
+        if (candidateData.faceData && biometricType === 'face') {
+          // Fallback: create image from base64 data
+          imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateData.hallTicket);
+          logger.debug('Created image file from base64', {
+            hallTicket: candidateData.hallTicket,
+            biometricType,
+            imagePath: imageFilePath
+          });
+        } else if (candidateData.thumbData && biometricType === 'thumb') {
+          // Fallback: create image from base64 data
+          imageFilePath = this.prepareImageFile(candidateData.thumbData, 'thumb', candidateData.hallTicket);
+          logger.debug('Created image file from base64', {
+            hallTicket: candidateData.hallTicket,
+            biometricType,
+            imagePath: imageFilePath
+          });
+        } else {
+          logger.warn('No image data available for sync', {
+            hallTicket: candidateData.hallTicket,
+            biometricType,
+            hasLocalPath: !!candidateData.localImagePath,
+            hasFaceData: !!candidateData.faceData,
+            hasThumbData: !!candidateData.thumbData
+          });
+        }
+      }
+
+      // Prepare FormData for multipart upload
+      const formData = new FormData();
+
+      // If no image file could be sourced from anywhere, stop here.
+      // Sending a request without an image only produces "No image file received"
+      // errors on the backend which then loop indefinitely through the retry scheduler.
+      if (!imageFilePath || !fs.existsSync(imageFilePath)) {
+        const errMsg = 'No image file available for sync — all sources exhausted';
+        logger.warn(errMsg, {
+          syncId,
           hallTicket: candidateData.hallTicket,
           biometricType,
           hasLocalPath: !!candidateData.localImagePath,
           hasFaceData: !!candidateData.faceData,
           hasThumbData: !!candidateData.thumbData
         });
+        this.syncStateManager.markAsFailed(candidateData.hallTicket, biometricType, errMsg);
+        return { success: false, error: errMsg };
       }
 
-      // Prepare FormData for multipart upload
-      const formData = new FormData();
-      
       // Add metadata
       const metadata = {
         syncId,

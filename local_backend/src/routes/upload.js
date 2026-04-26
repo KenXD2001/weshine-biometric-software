@@ -25,6 +25,14 @@ function parseCSV(csvContent) {
       const nextChar = line[i + 1];
       
       if (char === '"') {
+        // Tolerate malformed rows like ,""Centre Name" that are produced by
+        // some exports. Treat the doubled opening quote as a single opener.
+        if (!insideQuotes && current === '' && nextChar === '"') {
+          insideQuotes = true;
+          i++;
+          continue;
+        }
+
         if (insideQuotes && nextChar === '"') {
           // Escaped quote
           current += '"';
