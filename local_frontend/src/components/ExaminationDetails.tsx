@@ -6,8 +6,8 @@ interface ExaminationDetailsProps {
   setCentreCode: (value: string) => void;
   centreName: string;
   setCentreName: (value: string) => void;
-  city: string;
-  setCity: (value: string) => void;
+  cityName: string;
+  setCityName: (value: string) => void;
   examSlot: string;
   setExamSlot: (value: string) => void;
 }
@@ -17,8 +17,8 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
   setCentreCode,
   centreName,
   setCentreName,
-  city,
-  setCity,
+  cityName,
+  setCityName,
   examSlot,
   setExamSlot
 }) => {
@@ -43,7 +43,7 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
               type="text"
               value={centreCode}
               onChange={(e) => setCentreCode(e.target.value)}
-              placeholder="BLR001"
+              placeholder="24"
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: '8px',
@@ -67,7 +67,7 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
               type="text"
               value={centreName}
               onChange={(e) => setCentreName(e.target.value)}
-              placeholder="Bangalore"
+              placeholder="M D Indraprashta Sr Sec School"
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: '8px',
@@ -84,21 +84,21 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
         </div>
         <div className="group">
           <label className="block text-xs font-semibold text-gray-700 mb-1 group-focus-within:text-blue-600 transition-colors">
-            City <span className="text-red-500">*</span>
+            City Name <span className="text-red-500">*</span>
           </label>
           <div className="relative">
             <input
               type="text"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              placeholder="Bangalore"
+              value={cityName}
+              onChange={(e) => setCityName(e.target.value)}
+              placeholder="New Delhi"
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: '8px',
                 padding: '6px 8px',
                 width: '100%',
                 fontSize: '14px',
-                color: city ? '#000' : '#999'
+                color: cityName ? '#000' : '#999'
               }}
             />
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">

@@ -620,50 +620,50 @@ const BiometricCandidateList: React.FC = () => {
               {paginatedCandidates.map((candidate) => {
                 console.log('[BiometricCandidateList] candidate row', candidate.hallTicket, candidate.uploadedImagePath, candidate.liveImagePath, candidate.capturedImagePath, candidate.biometricImagePath);
                 return (
-                  <tr key={candidate.id} className="hover:bg-slate-50/50 transition-colors min-h-[80px]">
-                  <td className="px-3 py-3 text-xs font-medium text-slate-800 align-top">{candidate.hallTicket}</td>
-                  <td className="px-3 py-3 text-sm text-slate-900 align-top">
-                    <div className="font-medium text-slate-900">{candidate.candidateName}</div>
-                    <div className="text-xs text-slate-500">{candidate.emailId}</div>
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-700 align-top">
-                    {candidate.uploadedImagePath ? (
-                      <img
-                        src={resolveApiAsset(candidate.uploadedImagePath)}
-                        alt="Signature"
-                        className="h-18 w-18 object-contain rounded"
-                      />
-                    ) : 'Not Found'}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-700">
-                    {candidate.liveImagePath ? (
-                      <img
-                        src={resolveApiAsset(candidate.liveImagePath)}
-                        alt="Photo"
-                        className="h-18 w-18 object-contain rounded"
-                      />
-                    ) : 'Not Found'}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-700">
-                    {candidate.capturedImagePath ? (
-                      <img
-                        src={resolveApiAsset(candidate.capturedImagePath)}
-                        alt="Captured Photo"
-                        className="h-18 w-28 object-contain rounded"
-                      />
-                    ) : 'Not Captured'}
-                  </td>
-                  <td className="px-3 py-2 text-xs text-slate-700">
-                    {candidate.biometricImagePath ? (
-                      <img
-                        src={resolveApiAsset(candidate.biometricImagePath)}
-                        alt="Captured Thumb"
-                        className="h-18 w-18 object-contain rounded"
-                      />
-                    ) : 'Not Captured'}
-                  </td>
-                  <td className="px-3 py-2">{getStatusBadge(candidate.biometricStatus)}</td>
-                  <td className="px-3 py-2 text-xs space-y-1">
+                  <tr key={candidate.id} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="px-3 py-2 text-xs font-medium text-slate-800 align-top">{candidate.hallTicket}</td>
+                    <td className="px-3 py-2 text-sm text-slate-900 align-top">
+                      <div className="font-medium text-slate-900">{candidate.candidateName}</div>
+                      <div className="text-xs text-slate-500">{candidate.emailId}</div>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700 align-top">
+                      {candidate.uploadedImagePath ? (
+                        <img
+                          src={resolveApiAsset(candidate.uploadedImagePath)}
+                          alt="Signature"
+                          className="h-18 w-18 object-contain rounded"
+                        />
+                      ) : 'Not Found'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700 align-top">
+                      {candidate.liveImagePath ? (
+                        <img
+                          src={resolveApiAsset(candidate.liveImagePath)}
+                          alt="Photo"
+                          className="h-18 w-18 object-contain rounded"
+                        />
+                      ) : 'Not Found'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700 align-top">
+                      {candidate.capturedImagePath ? (
+                        <img
+                          src={resolveApiAsset(candidate.capturedImagePath)}
+                          alt="Captured Photo"
+                          className="h-18 w-28 object-contain rounded"
+                        />
+                      ) : 'Not Captured'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700 align-top">
+                      {candidate.biometricImagePath ? (
+                        <img
+                          src={resolveApiAsset(candidate.biometricImagePath)}
+                          alt="Captured Thumb"
+                          className="h-18 w-18 object-contain rounded"
+                        />
+                      ) : 'Not Captured'}
+                    </td>
+                    <td className="px-3 py-2">{getStatusBadge(candidate.biometricStatus)}</td>
+                    <td className="px-3 py-2 text-xs space-y-1">
                     <div className="flex items-center gap-1 text-slate-600">
                       <Camera className="w-3 h-3" />
                       {formatTimestamp(candidate.imageCaptureTimestamp)}

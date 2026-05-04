@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ExaminationDetails from '../components/ExaminationDetails';
 import BiometricDetails from '../components/BiometricDetails';
 import SessionDetails from '../components/SessionDetails';
@@ -25,7 +25,7 @@ const BiometricSoftware: React.FC = () => {
   
   const [centreCode, setCentreCode] = useState(userData?.centreCode || '');
   const [centreName, setCentreName] = useState(userData?.centreName || '');
-  const [city, setCity] = useState(userData?.city || userData?.cityName || '');
+  const [cityName, setCityName] = useState(userData?.cityName || '');
   const [examSlot, setExamSlot] = useState(userData?.examSlot || '');
   const [hallTicket, setHallTicket] = useState('');
   const [candidateName, setCandidateName] = useState('');
@@ -54,23 +54,23 @@ const BiometricSoftware: React.FC = () => {
   const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const loadCentreInfo = async () => {
+  const loadCentreInfo = useCallback(async () => {
     try {
       const result = await candidateService.getCentreInfo();
       if (result.successful && result.data) {
         setCentreCode(result.data.centreCode || userData?.centreCode || '');
         setCentreName(result.data.centreName || userData?.centreName || '');
-        setCity((result.data.city as string) || userData?.city || userData?.cityName || '');
-        setExamSlot((result.data.examSlot as string) || userData?.examSlot || '');
+        setCityName(result.data.cityName || userData?.cityName || '');
+        setExamSlot(result.data.examSlot || userData?.examSlot || '');
       }
     } catch (error) {
       console.warn('Failed to load centre info, using login user data fallback', error);
     }
-  };
+  }, [userData]);
 
   useEffect(() => {
     loadCentreInfo();
-  }, []);
+  }, [loadCentreInfo]);
 
   useEffect(() => {
     const handleCandidateDataUpdated = () => {
@@ -79,7 +79,7 @@ const BiometricSoftware: React.FC = () => {
 
     window.addEventListener('candidateDataUpdated', handleCandidateDataUpdated);
     return () => window.removeEventListener('candidateDataUpdated', handleCandidateDataUpdated);
-  }, []);
+  }, [loadCentreInfo]);
 
   const { toasts, success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo, removeToast } = useToast();
 
@@ -227,7 +227,7 @@ const BiometricSoftware: React.FC = () => {
         window.dispatchEvent(new Event('candidateDataUpdated'));
         setCentreCode('');
         setCentreName('');
-        setCity('');
+        setCityName('');
         setExamSlot('');
         setHallTicket('');
         setCandidateName('');
@@ -258,8 +258,8 @@ const BiometricSoftware: React.FC = () => {
           setCentreCode={setCentreCode}
           centreName={centreName}
           setCentreName={setCentreName}
-          city={city}
-          setCity={setCity}
+          cityName={cityName}
+          setCityName={setCityName}
           examSlot={examSlot}
           setExamSlot={setExamSlot}
         />

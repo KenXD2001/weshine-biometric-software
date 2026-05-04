@@ -49,8 +49,8 @@ type SyncResultData = {
 type CentreInfoData = {
   centreCode: string;
   centreName: string;
-  city?: string;
-  examSlot?: string;
+  cityName: string;
+  examSlot: string;
   [key: string]: unknown;
 };
 
