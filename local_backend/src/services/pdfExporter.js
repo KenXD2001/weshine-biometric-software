@@ -170,28 +170,39 @@ const resolveImageUrl = (imgPath) => {
 
 const imgTag = (url) => {
   if (!url) return '-';
-  return `<img src="${url}" alt="image" style="max-width:80px; max-height:60px; object-fit:contain;"/>`;
+  return `<img src="${url}" alt="image" style="display:block; margin:0 auto; max-width:140px; min-height:120px; width:auto; height:auto; object-fit:contain;"/>`;
 };
 
 const buildCandidateTableRows = (candidateList) => {
-  return candidateList.map(c => {
+  logger.info('Building candidate table rows', { candidateCount: candidateList.length });
+  
+  return candidateList.map((c, index) => {
     const signatureUrl = resolveImageUrl(c.uploadedImagePath || c.liveImagePath);
     const photoUrl = resolveImageUrl(c.liveImagePath || c.uploadedImagePath);
     const capturedPhotoUrl = resolveImageUrl(c.capturedImagePath);
     const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
 
+    logger.debug('Processing candidate for PDF', { 
+      index, 
+      hallTicket: c.hallTicket,
+      hasSignature: !!signatureUrl,
+      hasPhoto: !!photoUrl,
+      hasCapturedPhoto: !!capturedPhotoUrl,
+      hasCapturedThumb: !!capturedThumbUrl
+    });
+
     return `
-      <tr>
-        <td class="nowrap">${c.hallTicket || '-'}</td>
-        <td>${c.candidateName || '-'}</td>
-        <td>${c.emailId || '-'}</td>
-        <td>${c.gender || '-'}</td>
-        <td>${imgTag(signatureUrl)}</td>
-        <td>${imgTag(photoUrl)}</td>
-        <td>${imgTag(capturedPhotoUrl)}</td>
-        <td>${imgTag(capturedThumbUrl)}</td>
-        <td>${c.biometricStatus || '-'}</td>
-        <td class="nowrap small">
+      <tr style="height: 120px !important; min-height: 120px !important; page-break-inside: avoid;">
+        <td class="nowrap" style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.hallTicket || '-'}</td>
+        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.candidateName || '-'}</td>
+        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.emailId || '-'}</td>
+        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.gender || '-'}</td>
+        <td class="signature-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(signatureUrl)}</td>
+        <td class="photo-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(photoUrl)}</td>
+        <td class="captured-photo-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(capturedPhotoUrl)}</td>
+        <td class="captured-thumb-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(capturedThumbUrl)}</td>
+        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.biometricStatus || '-'}</td>
+        <td class="nowrap small" style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px; font-size: 9px;">
           ${convertUtcToIST(c.imageCaptureTimestamp)}<br/>
           ${convertUtcToIST(c.thumbCaptureTimestamp)}<br/>
           ${convertUtcToIST(c.submitTimestamp)}
@@ -321,10 +332,14 @@ const createPdfWithPuppeteer = async (html) => {
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-extensions',
+        '--disable-web-security',
+        '--disable-features=VizDisplayCompositor',
+        '--memory-pressure-off',
+        '--max-old-space-size=4096'
       ],
       headless: true,
       ignoreHTTPSErrors: true,
-      timeout: 60000,
+      timeout: 180000, // Further increased timeout
     };
 
     const executablePath = getBrowserExecutablePath();
@@ -335,17 +350,56 @@ const createPdfWithPuppeteer = async (html) => {
     const browser = await tryLaunchPuppeteer(browserOptions);
     const page = await browser.newPage();
     
-    await page.setContent(html, { waitUntil: 'networkidle0' });
+    // Set viewport and memory optimization
+    await page.setViewport({ width: 1920, height: 1080 });
+    
+    logger.debug('Setting HTML content', { htmlLength: html.length });
+    
+    // Use a more efficient way to set content for large HTML
+    await page.goto('about:blank');
+    await page.setContent(html, { 
+      waitUntil: 'domcontentloaded', 
+      timeout: 60000 
+    });
+    
+    // Wait for critical elements only
+    await page.waitForSelector('table', { timeout: 10000 });
+    
+    // Simplified debug check
+    const rowCount = await page.evaluate(() => document.querySelectorAll('tbody tr').length);
+    logger.debug('Table rows found', { rowCount });
+    
+    // Wait for images with timeout
+    try {
+      await page.evaluate(async () => {
+        const images = Array.from(document.images);
+        const imagePromises = images.map(img => {
+          if (img.complete) return Promise.resolve();
+          return new Promise((resolve) => {
+            const timeout = setTimeout(resolve, 5000); // 5 second timeout per image
+            img.addEventListener('load', () => { clearTimeout(timeout); resolve(); });
+            img.addEventListener('error', () => { clearTimeout(timeout); resolve(); });
+          });
+        });
+        await Promise.race([
+          Promise.all(imagePromises),
+          new Promise(resolve => setTimeout(resolve, 10000)) // 10 second total timeout
+        ]);
+      });
+    } catch (imgError) {
+      logger.warn('Image loading timeout, proceeding with PDF generation', { error: imgError.message });
+    }
 
     const pdfBuffer = await page.pdf({
       format: 'A4',
       landscape: true,
       printBackground: true,
-      margin: { top: '12mm', bottom: '10mm', left: '8mm', right: '8mm' }
+      margin: { top: '12mm', bottom: '10mm', left: '8mm', right: '8mm' },
+      timeout: 60000
     });
 
     await browser.close();
-    logger.info('Successfully generated PDF via Puppeteer');
+    logger.info('Successfully generated PDF via Puppeteer', { pdfSize: pdfBuffer.length });
     return pdfBuffer;
   } catch (error) {
     logger.error('Puppeteer PDF generation failed', { error: error.message, stack: error.stack });
@@ -411,6 +465,7 @@ const createTextOnlyPdf = (candidateList) => {
       startY: 20,
       theme: 'grid',
       margin: { top: 8, right: 8, bottom: 12, left: 8 },
+      rowPageBreak: 'avoid',
       styles: { 
         fontSize: 7,
         cellPadding: 1.5,
@@ -426,12 +481,13 @@ const createTextOnlyPdf = (candidateList) => {
       },
       bodyStyles: {
         fontSize: 6,
+        minCellHeight: 32, // ~120px converted to mm (120px / 3.78 ≈ 31.7mm)
       },
       columnStyles: {
-        4: { halign: 'center' },
-        5: { halign: 'center' },
-        6: { halign: 'center' },
-        7: { halign: 'center' },
+        4: { halign: 'center', cellWidth: 35 }, // Image columns with fixed width
+        5: { halign: 'center', cellWidth: 35 },
+        6: { halign: 'center', cellWidth: 35 },
+        7: { halign: 'center', cellWidth: 35 },
       },
       didDrawCell: function(data) {
         // For image columns, attempt to embed actual images
@@ -449,7 +505,16 @@ const createTextOnlyPdf = (candidateList) => {
           if (imgUrl && imgUrl.startsWith('data:')) {
             try {
               const { x, y, width, height } = cell;
-              doc.addImage(imgUrl, 'JPEG', x + 1, y + 1, width - 2, height - 2);
+              // Use the full cell height (should be ~32mm = 120px)
+              const imageHeight = Math.max(height - 2, 30); // Ensure minimum 30mm height
+              const imageWidth = Math.min(width - 2, 25); // Limit width to maintain aspect ratio
+              doc.addImage(imgUrl, 'JPEG', x + 1, y + 1, imageWidth, imageHeight);
+              logger.debug('Added image to PDF cell', { 
+                cellHeight: height, 
+                imageHeight, 
+                imageWidth,
+                hallTicket: candidateList[row.index]?.hallTicket 
+              });
             } catch (imgErr) {
               logger.debug('Could not embed image in PDF cell', { error: imgErr.message });
             }
@@ -536,9 +601,33 @@ const generatePdfBuffer = async (html, candidateList) => {
 };
 
 const createBiometricPdf = async (candidateList) => {
+  logger.info('Starting PDF generation', { candidateCount: candidateList.length });
+  
   const rowsHtml = buildCandidateTableRows(candidateList);
   const template = getTemplateHtml();
-  const html = template.replace('{{rows}}', rowsHtml).replace('{{generatedAt}}', getISTDateTime());
+  
+  logger.debug('Template loaded', { templateLength: template.length });
+  
+  let html = template;
+  if (!html.includes('{{rows}}')) {
+    logger.warn('PDF template missing {{rows}} placeholder, falling back to raw table generation');
+    html = `<!DOCTYPE html><html><head><style>table { width: 100%; border-collapse: collapse; } td, th { border: 1px solid #444; padding: 8px; } tr { height: 180px !important; min-height: 180px !important; } td { height: 180px !important; min-height: 180px !important; }</style></head><body><table><tbody>${rowsHtml}</tbody></table></body></html>`;
+  } else {
+    html = html.replace('{{rows}}', rowsHtml);
+  }
+  html = html.replace('{{generatedAt}}', getISTDateTime());
+  
+  logger.info('HTML generated for PDF', { 
+    htmlLength: html.length,
+    rowCount: candidateList.length,
+    containsRows: html.includes('<tr'),
+    containsStyles: html.includes('height: 180px')
+  });
+  
+  // Debug: Log a sample of the generated HTML
+  const htmlSample = html.substring(0, 1000) + '...';
+  logger.debug('Generated HTML sample', { htmlSample });
+  
   return generatePdfBuffer(html, candidateList);
 };
 

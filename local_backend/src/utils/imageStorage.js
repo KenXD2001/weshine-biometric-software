@@ -69,7 +69,7 @@ function saveBase64Image(base64String, hallTicket, imageType, centreCode) {
     if (!centreCode) {
       const candidatesModule = require('../routes/candidates');
       const centreInfo = candidatesModule.getCentreInfo();
-      centreCode = centreCode || centreInfo.code || 'UNKNOWN';
+      centreCode = centreCode || centreInfo.centreCode || 'UNKNOWN';
     }
 
     // Remove data URI prefix if present (e.g., "data:image/png;base64,")

@@ -9,9 +9,9 @@ const fs = require('fs');
 // Persistent storage - data loaded from disk on server start
 let candidates = [];
 let centreInfo = {
-  code: '',
-  name: '',
-  city: '',
+  centreCode: '',
+  centreName: '',
+  cityName: '',
   examSlot: ''
 };
 
@@ -70,16 +70,16 @@ const convertUtcToIST = (utcTimestamp) => {
     // Load from regular candidates.json (now includes uploaded/live images)
     candidates.push(...loadedCandidates);
     
-    if (loadedCentreInfo.code) {
-      centreInfo.code = loadedCentreInfo.code;
-      centreInfo.name = loadedCentreInfo.name;
-      centreInfo.city = loadedCentreInfo.city || '';
+    if (loadedCentreInfo.centreCode) {
+      centreInfo.centreCode = loadedCentreInfo.centreCode;
+      centreInfo.centreName = loadedCentreInfo.centreName;
+      centreInfo.cityName = loadedCentreInfo.cityName || '';
       centreInfo.examSlot = loadedCentreInfo.examSlot;
     }
     
     logger.success('Candidates and centre info restored from persistent storage', {
       candidatesCount: candidates.length,
-      centreCode: centreInfo.code || 'None'
+      centreCode: centreInfo.centreCode || 'None'
     });
   } catch (error) {
     logger.error('Failed to load data from storage', { error: error.message });
@@ -209,9 +209,9 @@ router.get('/centre-info', (req, res) => {
     res.json({
       successful: true,
       data: {
-        code: centreInfo.code || '',
-        name: centreInfo.name || '',
-        city: centreInfo.city || '',
+        centreCode: centreInfo.centreCode || '',
+        centreName: centreInfo.centreName || '',
+        cityName: centreInfo.cityName || '',
         examSlot: centreInfo.examSlot || ''
       }
     });
@@ -313,6 +313,56 @@ router.get('/export/pdf', async (req, res) => {
   }
 });
 
+// Search hall tickets endpoint
+router.get('/search', async (req, res) => {
+  try {
+    const { query } = req.query;
+    
+    if (!query || typeof query !== 'string') {
+      return res.status(400).json({
+        successful: false,
+        message: 'Query parameter is required'
+      });
+    }
+
+    const normalizedQuery = String(query).trim().toLowerCase();
+    
+    // Search candidates by hall ticket
+    const matchingCandidates = candidates.filter(candidate => {
+      const hallTicket = String(candidate.hallTicket || '').toLowerCase();
+      return hallTicket.includes(normalizedQuery);
+    });
+
+    // Extract unique hall tickets
+    const uniqueHallTickets = [...new Set(
+      matchingCandidates.map(candidate => candidate.hallTicket).filter(Boolean)
+    )];
+
+    logger.info('Hall ticket search completed', {
+      query: normalizedQuery,
+      resultsCount: uniqueHallTickets.length,
+      ip: req.ip
+    });
+
+    res.json({
+      successful: true,
+      data: uniqueHallTickets
+    });
+
+  } catch (error) {
+    logger.error('Error searching hall tickets', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip
+    });
+    
+    res.status(500).json({
+      successful: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
 // Export diagnostic biometric file JSON from data directory
 router.get('/export/json', async (req, res) => {
   try {
@@ -359,7 +409,7 @@ router.get('/counts', (req, res) => {
       filteredCandidates = candidates.filter((c) => String(c.centreCode || '').trim().toLowerCase() === normalizedRequestedCentreCode);
 
       if (filteredCandidates.length === 0) {
-        if (centreInfo && String(centreInfo.code || '').trim().toLowerCase() === normalizedRequestedCentreCode) {
+        if (centreInfo && String(centreInfo.centreCode || '').trim().toLowerCase() === normalizedRequestedCentreCode) {
           filteredCandidates = candidates;
         }
       }
@@ -448,16 +498,10 @@ router.get('/centre-info', (req, res) => {
 
     // Return centre info from the uploaded data
     const info = {
-      centreCode: centreInfo.code || '',
-      centreName: centreInfo.name || '',
-      city: centreInfo.city || '',
-      examSlot: centreInfo.examSlot || '',
-      // Parse exam slot to extract date and session if available
-      examDate: centreInfo.examSlot ? [centreInfo.examSlot.split(' ')[0]] : [],
-      sessions: centreInfo.examSlot ? [centreInfo.examSlot.split(' ')[1]] : [],
-      session: centreInfo.examSlot ? centreInfo.examSlot.split(' ')[1] : '',
-      date: centreInfo.examSlot ? centreInfo.examSlot.split(' ')[0] : '',
-      hasCandidates: candidates.length > 0
+      centreCode: centreInfo.centreCode || '',
+      centreName: centreInfo.centreName || '',
+      cityName: centreInfo.cityName || '',
+      examSlot: centreInfo.examSlot || ''
     };
 
     logger.success('Centre info retrieved', { 
@@ -543,17 +587,17 @@ module.exports = {
   getCentreInfo: () => centreInfo,
   
   setCentreInfo: (info) => {
-    centreInfo.code = info.code;
-    centreInfo.name = info.name;
-    centreInfo.city = info.city || '';
+    centreInfo.centreCode = info.centreCode;
+    centreInfo.centreName = info.centreName;
+    centreInfo.cityName = info.cityName || '';
     centreInfo.examSlot = info.examSlot;
 
     // Keep existing candidates aligned with the current centre info code
-    if (centreInfo.code) {
+    if (centreInfo.centreCode) {
       candidates.forEach((candidate) => {
-        candidate.centreCode = centreInfo.code;
-        if (!candidate.city && centreInfo.city) {
-          candidate.city = centreInfo.city;
+        candidate.centreCode = centreInfo.centreCode;
+        if (!candidate.cityName && centreInfo.cityName) {
+          candidate.cityName = centreInfo.cityName;
         }
         if (!candidate.examSlot && centreInfo.examSlot) {
           candidate.examSlot = centreInfo.examSlot;

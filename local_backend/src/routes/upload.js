@@ -9,7 +9,44 @@ const AdmZip = require('adm-zip');
 
 // CSV parser with proper quoted field handling
 function parseCSV(csvContent) {
-  const lines = csvContent.trim().split('\n');
+  const normalizedContent = csvContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+  if (!normalizedContent) {
+    throw new Error('CSV file is empty or has no data rows');
+  }
+
+  function splitCSVRows(content) {
+    const rows = [];
+    let current = '';
+    let insideQuotes = false;
+
+    for (let i = 0; i < content.length; i++) {
+      const char = content[i];
+      const nextChar = content[i + 1];
+
+      if (char === '"') {
+        if (insideQuotes && nextChar === '"') {
+          current += '"';
+          i++;
+          continue;
+        }
+        insideQuotes = !insideQuotes;
+        current += char;
+      } else if (char === '\n' && !insideQuotes) {
+        rows.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+
+    if (current !== '') {
+      rows.push(current);
+    }
+
+    return rows;
+  }
+
+  const lines = splitCSVRows(normalizedContent);
   if (lines.length < 2) {
     throw new Error('CSV file is empty or has no data rows');
   }
@@ -25,20 +62,11 @@ function parseCSV(csvContent) {
       const nextChar = line[i + 1];
       
       if (char === '"') {
-        // Tolerate malformed rows like ,""Centre Name" that are produced by
-        // some exports. Treat the doubled opening quote as a single opener.
-        if (!insideQuotes && current === '' && nextChar === '"') {
-          insideQuotes = true;
-          i++;
-          continue;
-        }
-
         if (insideQuotes && nextChar === '"') {
-          // Escaped quote
+          // Escaped quote inside a quoted field
           current += '"';
           i++;
         } else {
-          // Toggle quote state
           insideQuotes = !insideQuotes;
         }
       } else if (char === ',' && !insideQuotes) {
@@ -962,19 +990,28 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT fall back to any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', city: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { centreCode: '', centreName: '', cityName: '', examSlot: '' };
     const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
     if (tokenCentreInfo) {
-      centreInfo.code = centreInfo.code || tokenCentreInfo.code;
-      centreInfo.name = centreInfo.name || tokenCentreInfo.name;
-      centreInfo.city = centreInfo.city || tokenCentreInfo.city;
+      centreInfo.centreCode = centreInfo.centreCode || tokenCentreInfo.code;
+      centreInfo.centreName = centreInfo.centreName || tokenCentreInfo.name;
+      centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city;
     }
 
     if (zipMetadata && typeof zipMetadata === 'object') {
-      centreInfo.code = centreInfo.code || String(zipMetadata.centreCode || '').trim();
-      centreInfo.name = centreInfo.name || String(zipMetadata.centreName || '').trim();
-      centreInfo.city = centreInfo.city || String(zipMetadata.city || '').trim();
+      centreInfo.centreCode = centreInfo.centreCode || String(zipMetadata.centreCode || '').trim();
+      centreInfo.centreName = centreInfo.centreName || String(zipMetadata.centreName || '').trim();
+      centreInfo.cityName = centreInfo.cityName || String(zipMetadata.cityName || '').trim();
       centreInfo.examSlot = centreInfo.examSlot || String(zipMetadata.examSlot || '').trim();
+      
+      // Update candidate counts if available in metadata
+      if (zipMetadata.candidateCount) {
+        centreInfo.candidate_counts = {
+          total: zipMetadata.candidateCount,
+          completed: 0,
+          pending: zipMetadata.candidateCount
+        };
+      }
     }
 
     let candidates = [];

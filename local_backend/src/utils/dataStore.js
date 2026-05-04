@@ -102,9 +102,9 @@ async function saveCentreInfo(centreInfo, candidates = []) {
     
     // Calculate candidate counts
     const centreData = {
-      code: centreInfo.code || '',
-      name: centreInfo.name || '',
-      city: centreInfo.city || '',
+      centreCode: centreInfo.centreCode || '',
+      centreName: centreInfo.centreName || '',
+      cityName: centreInfo.cityName || '',
       examSlot: centreInfo.examSlot || '',
       candidate_counts: {
         total: candidates.length,
@@ -116,7 +116,7 @@ async function saveCentreInfo(centreInfo, candidates = []) {
     
     await fs.writeFile(CENTRE_INFO_FILE, JSON.stringify(centreData, null, 2), 'utf8');
     logger.info('Centre info saved to disk', { 
-      code: centreData.code,
+      code: centreData.centreCode,
       totalCandidates: centreData.candidate_counts.total
     });
     return true;
@@ -243,7 +243,7 @@ async function initializeDataStore() {
     
     logger.success('Data store initialized', { 
       candidatesCount: candidates.length,
-      centreCode: centreInfo.code || 'N/A'
+      centreCode: centreInfo.centreCode || 'N/A'
     });
     
     return { candidates, centreInfo };

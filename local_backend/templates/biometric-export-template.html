@@ -6,12 +6,33 @@
   <style>
     body { font-family: Arial, sans-serif; margin: 12px; }
     h1 { text-align: center; font-size: 20px; margin-bottom: 16px; }
-    table { width: 100%; border-collapse: collapse; font-size: 10px; }
-    th, td { border: 1px solid #444; padding: 6px 8px; text-align: left; }
+    table { width: 100%; border-collapse: collapse; font-size: 10px; table-layout: fixed; }
+    th, td { border: 1px solid #444; padding: 10px 12px; text-align: left; vertical-align: middle; }
+    td { min-height: 120px !important; height: 120px !important; }
+    tbody tr { height: 120px !important; }
     th { background: #f1f1f1; }
+    tr { page-break-inside: avoid; height: 120px !important; }
     .nowrap { white-space: nowrap; }
     .small { font-size: 9px; }
-    .photo-cell img { max-width: 60px; max-height: 40px; object-fit: contain; }
+    .signature-cell,
+    .photo-cell,
+    .captured-photo-cell,
+    .captured-thumb-cell {
+      min-width: 130px;
+      max-width: 150px;
+    }
+    .signature-cell img,
+    .photo-cell img,
+    .captured-photo-cell img,
+    .captured-thumb-cell img {
+      display: block;
+      margin: 0 auto;
+      max-width: 140px;
+      min-height: 120px;
+      width: auto;
+      height: auto;
+      object-fit: contain;
+    }
     .footer { margin-top: 12px; font-size: 9px; text-align: right; }
   </style>
 </head>
