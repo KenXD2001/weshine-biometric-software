@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Candidate Biometric Verification Report</title>
+  <title>Candidate Biometric Report</title>
   <style>
     :root {
       color-scheme: light;
@@ -159,7 +159,7 @@
 
     thead th {
       background: #f3f4f6;
-      padding: 8px 6px;
+      padding: 8 6px;
     }
 
     th, td {
@@ -263,41 +263,31 @@
       <div class="hero-top">
         <div class="hero-title">
           <h1>Candidate Biometric Verification Report</h1>
-          <p>Review the uploaded candidate data, image captures, and biometric status in a printable report format.</p>
         </div>
       </div>
 
       <div class="hero-meta">
         <div class="meta-card">
           <strong>Centre</strong>
-          <span>{{centerName}}</span>
+          <span id="centerName">Srusti Academy of Management</span>
         </div>
         <div class="meta-card">
           <strong>City</strong>
-          <span>{{cityName}}</span>
+          <span id="cityName">Bhubaneswar</span>
         </div>
         <div class="meta-card">
           <strong>Exam slot</strong>
-          <span>{{examSlot}}</span>
+          <span id="examSlot"></span>
         </div>
         <div class="meta-card">
           <strong>Total candidates</strong>
-          <span>{{candidateCount}}</span>
+          <span id="candidateCount">0</span>
         </div>
       </div>
     </section>
 
     <section class="table-wrap">
       <table>
-        <colgroup>
-          <col />
-          <col />
-          <col />
-          <col />
-          <col />
-          <col />
-          <col />
-        </colgroup>
         <thead>
           <tr>
             <th>Hall Ticket</th>
@@ -310,7 +300,9 @@
           </tr>
         </thead>
         <tbody id="reportBody">
-          {{rows}}
+          <tr>
+            <td class="empty" colspan="7">Loading report data…</td>
+          </tr>
         </tbody>
       </table>
     </section>

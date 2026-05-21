@@ -297,7 +297,11 @@ router.get('/export/pdf', async (req, res) => {
       filteredCandidates = filteredCandidates.filter(c => String(c.biometricStatus || '').toLowerCase() === String(status).toLowerCase());
     }
 
-    const pdfBuffer = await pdfExporter.createBiometricPdf(filteredCandidates);
+    const pdfBuffer = await pdfExporter.createBiometricPdf(filteredCandidates, {
+      centreName: centreInfo.centreName,
+      cityName: centreInfo.cityName,
+      examSlot: centreInfo.examSlot
+    });
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'attachment; filename="biometric-candidate-list.pdf"');
@@ -589,7 +593,7 @@ module.exports = {
   setCentreInfo: (info) => {
     centreInfo.centreCode = info.centreCode;
     centreInfo.centreName = info.centreName;
-    centreInfo.cityName = info.cityName || '';
+    centreInfo.cityName = info.cityName || info.city || '';
     centreInfo.examSlot = info.examSlot;
 
     // Keep existing candidates aligned with the current centre info code

@@ -169,52 +169,424 @@ const resolveImageUrl = (imgPath) => {
 };
 
 const imgTag = (url) => {
-  if (!url) return '-';
-  return `<img src="${url}" alt="image" style="display:block; margin:0 auto; max-width:140px; min-height:120px; width:auto; height:auto; object-fit:contain;"/>`;
+  if (!url) return '<span class="empty">—</span>';
+  return `<img src="${url}" alt="image" style="display:block; margin:0 auto; max-width:100%; height:140px; width:auto; object-fit:contain; border-radius:0; border:1px solid rgba(148,163,184,0.22); background:#f8fafc; padding:4px;" />`;
 };
 
 const buildCandidateTableRows = (candidateList) => {
   logger.info('Building candidate table rows', { candidateCount: candidateList.length });
-  
-  return candidateList.map((c, index) => {
+
+  const rowsHtml = candidateList.map((c, index) => {
     const signatureUrl = resolveImageUrl(c.uploadedImagePath || c.liveImagePath);
     const photoUrl = resolveImageUrl(c.liveImagePath || c.uploadedImagePath);
     const capturedPhotoUrl = resolveImageUrl(c.capturedImagePath);
     const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
 
+    const hasSignature = !!signatureUrl;
+    const hasPhoto = !!photoUrl;
+    const hasCapturedPhoto = !!capturedPhotoUrl;
+    const hasCapturedThumb = !!capturedThumbUrl;
+
+    // Format timestamps for display (one per line as in original)
+    const imageTime = convertUtcToIST(c.imageCaptureTimestamp);
+    const thumbTime = convertUtcToIST(c.thumbCaptureTimestamp);
+    const submitTime = convertUtcToIST(c.submitTimestamp);
+    
+    // Build timestamp string with line breaks
+    const timestamps = [imageTime, thumbTime, submitTime]
+      .filter(t => t !== '-')
+      .join('\n');
+
     logger.debug('Processing candidate for PDF', { 
       index, 
       hallTicket: c.hallTicket,
-      hasSignature: !!signatureUrl,
-      hasPhoto: !!photoUrl,
-      hasCapturedPhoto: !!capturedPhotoUrl,
-      hasCapturedThumb: !!capturedThumbUrl
+      hasSignature,
+      hasPhoto,
+      hasCapturedPhoto,
+      hasCapturedThumb
     });
 
     return `
-      <tr style="height: 120px !important; min-height: 120px !important; page-break-inside: avoid;">
-        <td class="nowrap" style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.hallTicket || '-'}</td>
-        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.candidateName || '-'}</td>
-        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.emailId || '-'}</td>
-        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.gender || '-'}</td>
-        <td class="signature-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(signatureUrl)}</td>
-        <td class="photo-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(photoUrl)}</td>
-        <td class="captured-photo-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(capturedPhotoUrl)}</td>
-        <td class="captured-thumb-cell" style="vertical-align: middle !important; height: 120px !important; min-height: 120px !important; text-align: center !important; padding: 4px;">${imgTag(capturedThumbUrl)}</td>
-        <td style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px;">${c.biometricStatus || '-'}</td>
-        <td class="nowrap small" style="vertical-align: top !important; height: 120px !important; min-height: 120px !important; padding: 8px; font-size: 9px;">
-          ${convertUtcToIST(c.imageCaptureTimestamp)}<br/>
-          ${convertUtcToIST(c.thumbCaptureTimestamp)}<br/>
-          ${convertUtcToIST(c.submitTimestamp)}
-        </td>
+      <tr style="page-break-inside: avoid;">
+        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.hallTicket || '-')}</td>
+        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.candidateName || '-')}</td>
+        <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasSignature ? imgTag(signatureUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
+        <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasPhoto ? imgTag(photoUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
+        <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasCapturedPhoto ? imgTag(capturedPhotoUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
+        <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasCapturedThumb ? imgTag(capturedThumbUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
+        <td style="vertical-align: top; padding: 10px; white-space: pre-line; font-size: 0.85rem; color: #4b5563; line-height: 1.4;">${escapeHtml(timestamps) || '-'}</td>
       </tr>
     `;
-  }).join('');
+  });
+
+  return rowsHtml.join('');
 };
 
-const getTemplateHtml = () => {
-  const templatePath = path.join(__dirname, '../../templates/biometric-export-template.html');
-  return fs.readFileSync(templatePath, 'utf8');
+// Helper function to escape HTML special characters
+const escapeHtml = (str) => {
+  if (!str) return '';
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+};
+
+const countMatches = (text, regex) => {
+  if (!text || typeof text !== 'string') return 0;
+  return (text.match(regex) || []).length;
+};
+
+const TEMPLATE_PATH = path.join(__dirname, '../../templates/biometric-export-template.html');
+
+const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Candidate Biometric Verification Report</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #eef4fb;
+      --surface: #ffffff;
+      --surface-strong: #f8fbff;
+      --text: #111827;
+      --muted: #4b5563;
+      --border: #d1d5db;
+      --accent: #2563eb;
+      --accent-soft: #e0e7ff;
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: Inter, "Segoe UI", Arial, sans-serif;
+      background: #f5f7fa;
+      color: var(--text);
+    }
+
+    body {
+      padding: 8px;
+    }
+
+    .container {
+      max-width: 1180px;
+      margin: 0 auto;
+      background: var(--surface);
+      border-radius: 0;
+      box-shadow: none;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .hero {
+      padding: 18px 16px 14px;
+      background: #f8fafc;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+    }
+
+    .hero-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .hero-title {
+      max-width: 720px;
+    }
+
+    .hero-title h1 {
+      margin: 0;
+      font-size: 1.8rem;
+      letter-spacing: -0.03em;
+      line-height: 1.12;
+    }
+
+    .hero-title p {
+      margin: 8px 0 0;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      color: var(--muted);
+      max-width: 100%;
+    }
+
+    .hero-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      border: none;
+      border-radius: 0;
+      padding: 10px 12px;
+      font-size: 0.92rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: none;
+    }
+
+    .button--primary {
+      color: #ffffff;
+      background: var(--accent);
+      box-shadow: none;
+    }
+
+    .button--primary:hover {
+      background: #1d4ed8;
+    }
+
+    .button--secondary {
+      color: var(--accent);
+      background: var(--accent-soft);
+    }
+
+    .hero-meta {
+      margin-top: 14px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .meta-card {
+      padding: 10px 12px;
+      border-radius: 0;
+      background: #ffffff;
+      border: 1px solid rgba(148, 163, 184, 0.16);
+    }
+
+    .meta-card strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.75rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .meta-card span {
+      display: block;
+      font-size: 0.98rem;
+      font-weight: 700;
+      color: var(--text);
+    }
+
+    .table-wrap {
+      padding: 4px 4px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 0;
+      min-width: 980px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+    }
+
+    thead th {
+      background: #f3f4f6;
+      padding: 8px 6px;
+    }
+
+    th, td {
+      padding: 10px 10px;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      font-size: 0.9rem;
+      color: #1e3a8a;
+      letter-spacing: 0.01em;
+      font-weight: 700;
+    }
+
+    tbody tr:hover {
+      background: transparent;
+    }
+
+    tbody tr:nth-child(odd) {
+      background: #ffffff;
+    }
+
+    tbody tr:nth-child(even) {
+      background: #f8fafc;
+    }
+
+    td {
+      font-size: 0.93rem;
+      color: var(--text);
+      line-height: 1.4;
+    }
+
+    td[data-type="image"] {
+      width: 150px;
+      max-width: 180px;
+    }
+
+    td[data-type="image"] img {
+      width: 100%;
+      height: 140px;
+      object-fit: contain;
+      border-radius: 0;
+      border: 1px solid rgba(148, 163, 184, 0.22);
+      background: #f8fafc;
+      padding: 4px;
+    }
+
+    td.empty {
+      color: var(--muted);
+      font-style: italic;
+      text-align: center;
+    }
+
+    .note {
+      padding: 0 16px 16px;
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    @media (max-width: 960px) {
+      .hero {
+        padding: 14px 12px 12px;
+      }
+
+      .hero-meta {
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      }
+
+      td[data-type="image"] img {
+        height: 120px;
+      }
+    }
+
+    @media print {
+      body {
+        padding: 0;
+        background: #ffffff;
+      }
+
+      .container {
+        box-shadow: none;
+        border: none;
+        border-radius: 0;
+      }
+
+      .button, .hero-actions {
+        display: none;
+      }
+
+      thead th {
+        background: #f8fbff;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <section class="hero">
+      <div class="hero-top">
+        <div class="hero-title">
+          <h1>Candidate Biometric Verification Report</h1>
+          <p>Review the uploaded candidate data, image captures, and biometric status in a printable report format.</p>
+        </div>
+      </div>
+
+      <div class="hero-meta">
+        <div class="meta-card">
+          <strong>Centre</strong>
+          <span>{{centerName}}</span>
+        </div>
+        <div class="meta-card">
+          <strong>City</strong>
+          <span>{{cityName}}</span>
+        </div>
+        <div class="meta-card">
+          <strong>Exam slot</strong>
+          <span>{{examSlot}}</span>
+        </div>
+        <div class="meta-card">
+          <strong>Total candidates</strong>
+          <span>{{candidateCount}}</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="table-wrap">
+      <table>
+        <colgroup>
+          <col />
+          <col />
+          <col />
+          <col />
+          <col />
+          <col />
+          <col />
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Hall Ticket</th>
+            <th>Candidate Name</th>
+            <th>Signature</th>
+            <th>Photo</th>
+            <th>Captured Photo</th>
+            <th>Captured Thumb</th>
+            <th>Capture Timing</th>
+          </tr>
+        </thead>
+        <tbody id="reportBody">
+          {{rows}}
+        </tbody>
+      </table>
+    </section>
+
+    <div class="note">Generated at: {{generatedAt}} IST</div>
+  </div>
+</body>
+</html>`;
+
+const loadTemplateHtml = () => {
+  try {
+    const template = fs.readFileSync(TEMPLATE_PATH, 'utf8');
+    if (!template.includes('{{rows}}')) {
+      logger.warn('PDF template missing {{rows}} placeholder, falling back to built-in template', { templatePath: TEMPLATE_PATH });
+      return DEFAULT_TEMPLATE_HTML;
+    }
+    const headerCount = countMatches(template, /<th\b/gi);
+    if (headerCount !== 7) {
+      logger.warn('PDF template header column count mismatch, using built-in template', { templatePath: TEMPLATE_PATH, headerCount });
+      return DEFAULT_TEMPLATE_HTML;
+    }
+    logger.debug('Loaded PDF template from file', { templatePath: TEMPLATE_PATH, headerCount });
+    return template;
+  } catch (error) {
+    logger.warn('Failed to load PDF template file, using built-in template', { error: error.message, templatePath: TEMPLATE_PATH });
+  }
+  return DEFAULT_TEMPLATE_HTML;
+};
+
+const renderTemplate = (template, values) => {
+  return Object.entries(values).reduce((html, [key, value]) => {
+    const replacement = key === 'rows' ? value : escapeHtml(String(value || ''));
+    return html.split(`{{${key}}}`).join(replacement);
+  }, template);
 };
 
 const createPdfWithElectron = async (html) => {
@@ -256,16 +628,11 @@ const createPdfWithElectron = async (html) => {
 
 const tryLaunchPuppeteer = async (options) => {
   const browsers = [];
-  
-  // Try custom executable path first
+
   if (options.executablePath) {
-    browsers.push({
-      path: options.executablePath,
-      label: 'custom PUPPETEER_EXECUTABLE_PATH'
-    });
+    browsers.push({ path: options.executablePath, label: 'custom PUPPETEER_EXECUTABLE_PATH' });
   }
 
-  // Add common browser paths for different OS
   if (process.platform === 'linux') {
     browsers.push(
       { path: '/usr/bin/chromium-browser', label: 'chromium-browser (Linux)' },
@@ -301,7 +668,6 @@ const tryLaunchPuppeteer = async (options) => {
     }
   }
 
-  // Try without explicit executable path
   try {
     logger.debug('Attempting to launch Puppeteer without explicit executable path');
     const browser = await puppeteer.launch({
@@ -322,7 +688,7 @@ const tryLaunchPuppeteer = async (options) => {
 const createPdfWithPuppeteer = async (html) => {
   try {
     logger.debug('Attempting PDF generation via Puppeteer');
-    
+
     const browserOptions = {
       args: [
         '--no-sandbox',
@@ -339,55 +705,47 @@ const createPdfWithPuppeteer = async (html) => {
       ],
       headless: true,
       ignoreHTTPSErrors: true,
-      timeout: 180000, // Further increased timeout
+      timeout: 180000,
     };
 
     const executablePath = getBrowserExecutablePath();
-    if (executablePath) {
-      browserOptions.executablePath = executablePath;
-    }
+    if (executablePath) browserOptions.executablePath = executablePath;
 
     const browser = await tryLaunchPuppeteer(browserOptions);
     const page = await browser.newPage();
-    
-    // Set viewport and memory optimization
     await page.setViewport({ width: 1920, height: 1080 });
-    
-    logger.debug('Setting HTML content', { htmlLength: html.length });
-    
-    // Use a more efficient way to set content for large HTML
     await page.goto('about:blank');
-    await page.setContent(html, { 
-      waitUntil: 'domcontentloaded', 
-      timeout: 60000 
-    });
-    
-    // Wait for critical elements only
+    await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 60000 });
     await page.waitForSelector('table', { timeout: 10000 });
-    
-    // Simplified debug check
-    const rowCount = await page.evaluate(() => document.querySelectorAll('tbody tr').length);
-    logger.debug('Table rows found', { rowCount });
-    
-    // Wait for images with timeout
+
     try {
-      await page.evaluate(async () => {
-        const images = Array.from(document.images);
-        const imagePromises = images.map(img => {
-          if (img.complete) return Promise.resolve();
-          return new Promise((resolve) => {
-            const timeout = setTimeout(resolve, 5000); // 5 second timeout per image
-            img.addEventListener('load', () => { clearTimeout(timeout); resolve(); });
-            img.addEventListener('error', () => { clearTimeout(timeout); resolve(); });
-          });
+      await page.evaluate(() => {
+        document.querySelectorAll('img').forEach(img => {
+          img.loading = 'eager';
+          img.decoding = 'sync';
         });
-        await Promise.race([
-          Promise.all(imagePromises),
-          new Promise(resolve => setTimeout(resolve, 10000)) // 10 second total timeout
-        ]);
       });
+
+      const imageStats = await page.evaluate(() => {
+        const images = Array.from(document.images);
+        return images.map(img => ({
+          src: img.currentSrc || img.src,
+          complete: img.complete,
+          naturalWidth: img.naturalWidth,
+          naturalHeight: img.naturalHeight,
+          loading: img.loading,
+          visible: img.offsetParent !== null
+        }));
+      });
+
+      const loadedCount = imageStats.filter(img => img.complete && img.naturalWidth > 0 && img.naturalHeight > 0).length;
+      const errorCount = imageStats.filter(img => img.complete && (img.naturalWidth === 0 || img.naturalHeight === 0)).length;
+      await page.waitForFunction(() => {
+        const images = Array.from(document.images);
+        return images.length === 0 || images.every(img => img.complete && (img.naturalWidth > 0 || img.naturalHeight > 0));
+      }, { timeout: 120000 });
     } catch (imgError) {
-      logger.warn('Image loading timeout, proceeding with PDF generation', { error: imgError.message });
+      logger.warn('Image loading error, proceeding with PDF generation', { error: imgError.message });
     }
 
     const pdfBuffer = await page.pdf({
@@ -395,7 +753,7 @@ const createPdfWithPuppeteer = async (html) => {
       landscape: true,
       printBackground: true,
       margin: { top: '12mm', bottom: '10mm', left: '8mm', right: '8mm' },
-      timeout: 60000
+      timeout: 120000
     });
 
     await browser.close();
@@ -419,102 +777,84 @@ const createTextOnlyPdf = (candidateList) => {
     }
 
     const doc = new jsPDF('landscape', 'mm', 'a4');
-    
-    // Title
     doc.setFontSize(16);
-    doc.text('Biometric Candidate List', doc.internal.pageSize.getWidth() / 2, 12, { align: 'center' });
-    
-    // Prepare table data with all columns matching the HTML template
+    doc.text('Candidate Biometric Verification Report', doc.internal.pageSize.getWidth() / 2, 12, { align: 'center' });
+    doc.setFontSize(9);
+    doc.text('Review the uploaded candidate data, image captures, and biometric status in a printable report format.', doc.internal.pageSize.getWidth() / 2, 18, { align: 'center' });
+
     const tableData = candidateList.map(c => {
       const signatureUrl = resolveImageUrl(c.uploadedImagePath || c.liveImagePath);
       const photoUrl = resolveImageUrl(c.liveImagePath || c.uploadedImagePath);
       const capturedPhotoUrl = resolveImageUrl(c.capturedImagePath);
       const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
-      
+      const timestamps = [
+        convertUtcToIST(c.imageCaptureTimestamp),
+        convertUtcToIST(c.thumbCaptureTimestamp),
+        convertUtcToIST(c.submitTimestamp)
+      ].filter(t => t !== '-').join('\n');
+
       return [
         c.hallTicket || '-',
         c.candidateName || '-',
-        c.emailId || '-',
-        c.gender || '-',
         signatureUrl ? '[Img]' : '-',
         photoUrl ? '[Img]' : '-',
         capturedPhotoUrl ? '[Img]' : '-',
         capturedThumbUrl ? '[Img]' : '-',
-        c.biometricStatus || '-',
-        (convertUtcToIST(c.imageCaptureTimestamp) || '-') + '\n' +
-        (convertUtcToIST(c.thumbCaptureTimestamp) || '-') + '\n' +
-        (convertUtcToIST(c.submitTimestamp) || '-'),
+        timestamps || '-',
       ];
     });
 
-    // Add table with all 10 columns
+    const headerColumns = 7;
+    const bodyRows = tableData.length;
+    const bodyColumns = bodyRows * headerColumns;
+    logger.info('Text-only PDF export table dimensions', {
+      headerColumns,
+      bodyRows,
+      bodyColumns,
+      columnsPerRow: headerColumns
+    });
+
     autoTable(doc, {
       head: [[
-        'Hall\nTicket',
-        'Candidate\nName',
-        'Email',
-        'Gender',
+        'Hall Ticket',
+        'Candidate Name',
         'Signature',
         'Photo',
-        'Captured\nPhoto',
-        'Captured\nThumb',
-        'Status',
-        'Image Capture / Thumb / Submit\nTimestamp'
+        'Captured Photo',
+        'Captured Thumb',
+        'Capture Timing'
       ]],
       body: tableData,
-      startY: 20,
+      startY: 24,
       theme: 'grid',
       margin: { top: 8, right: 8, bottom: 12, left: 8 },
       rowPageBreak: 'avoid',
-      styles: { 
-        fontSize: 7,
-        cellPadding: 1.5,
-        textColor: [0, 0, 0],
-        halign: 'center',
-        valign: 'middle',
-      },
-      headStyles: { 
-        fillColor: [30, 30, 30], 
-        textColor: [255, 255, 255],
-        fontStyle: 'bold',
-        fontSize: 7,
-      },
-      bodyStyles: {
-        fontSize: 6,
-        minCellHeight: 32, // ~120px converted to mm (120px / 3.78 ≈ 31.7mm)
-      },
+      styles: { fontSize: 7, cellPadding: 1.5, textColor: [0, 0, 0], halign: 'center', valign: 'middle' },
+      headStyles: { fillColor: [30, 30, 30], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+      bodyStyles: { fontSize: 6, minCellHeight: 32 },
       columnStyles: {
-        4: { halign: 'center', cellWidth: 35 }, // Image columns with fixed width
+        2: { halign: 'center', cellWidth: 35 },
+        3: { halign: 'center', cellWidth: 35 },
+        4: { halign: 'center', cellWidth: 35 },
         5: { halign: 'center', cellWidth: 35 },
-        6: { halign: 'center', cellWidth: 35 },
-        7: { halign: 'center', cellWidth: 35 },
       },
       didDrawCell: function(data) {
-        // For image columns, attempt to embed actual images
         const { cell, column, row, section } = data;
-        if (section === 'body' && [4, 5, 6, 7].includes(column.index)) {
+        if (section === 'body' && [2, 3, 4, 5].includes(column.index)) {
           const candidate = candidateList[row.index];
           if (!candidate) return;
-          
           let imgUrl = null;
-          if (column.index === 4) imgUrl = resolveImageUrl(candidate.uploadedImagePath || candidate.liveImagePath);
-          if (column.index === 5) imgUrl = resolveImageUrl(candidate.liveImagePath || candidate.uploadedImagePath);
-          if (column.index === 6) imgUrl = resolveImageUrl(candidate.capturedImagePath);
-          if (column.index === 7) imgUrl = resolveImageUrl(candidate.biometricImagePath);
-          
+          if (column.index === 2) imgUrl = resolveImageUrl(candidate.uploadedImagePath || candidate.liveImagePath);
+          if (column.index === 3) imgUrl = resolveImageUrl(candidate.liveImagePath || candidate.uploadedImagePath);
+          if (column.index === 4) imgUrl = resolveImageUrl(candidate.capturedImagePath);
+          if (column.index === 5) imgUrl = resolveImageUrl(candidate.biometricImagePath);
           if (imgUrl && imgUrl.startsWith('data:')) {
             try {
               const { x, y, width, height } = cell;
-              // Use the full cell height (should be ~32mm = 120px)
-              const imageHeight = Math.max(height - 2, 30); // Ensure minimum 30mm height
-              const imageWidth = Math.min(width - 2, 25); // Limit width to maintain aspect ratio
+              const imageHeight = Math.max(height - 2, 30);
+              const imageWidth = Math.min(width - 2, 25);
               doc.addImage(imgUrl, 'JPEG', x + 1, y + 1, imageWidth, imageHeight);
-              logger.debug('Added image to PDF cell', { 
-                cellHeight: height, 
-                imageHeight, 
-                imageWidth,
-                hallTicket: candidateList[row.index]?.hallTicket 
-              });
+              logger.debug('Added image to PDF cell', { cellHeight: height, imageHeight, imageWidth, hallTicket: candidateList[row.index]?.hallTicket });
             } catch (imgErr) {
               logger.debug('Could not embed image in PDF cell', { error: imgErr.message });
             }
@@ -523,21 +863,11 @@ const createTextOnlyPdf = (candidateList) => {
       },
     });
 
-    // Footer with generation timestamp and page count
-    const pageCount = typeof doc.getNumberOfPages === 'function'
-      ? doc.getNumberOfPages()
-      : (doc.internal && typeof doc.internal.getNumberOfPages === 'function'
-        ? doc.internal.getNumberOfPages()
-        : 1);
+    const pageCount = typeof doc.getNumberOfPages === 'function' ? doc.getNumberOfPages() : (doc.internal && typeof doc.internal.getNumberOfPages === 'function' ? doc.internal.getNumberOfPages() : 1);
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(7);
-      doc.text(
-        `Generated: ${getISTDateTime()} IST | Page ${i} of ${pageCount}`,
-        doc.internal.pageSize.getWidth() / 2,
-        doc.internal.pageSize.getHeight() - 6,
-        { align: 'center' }
-      );
+      doc.text(`Generated: ${getISTDateTime()} IST | Page ${i} of ${pageCount}`, doc.internal.pageSize.getWidth() / 2, doc.internal.pageSize.getHeight() - 6, { align: 'center' });
     }
 
     logger.info('Successfully generated full PDF via jsPDF with images');
@@ -551,83 +881,86 @@ const createTextOnlyPdf = (candidateList) => {
 const validatePdfBuffer = (buffer) => {
   const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
   const signature = buf.slice(0, 4).toString('ascii');
-  
   if (signature !== '%PDF') {
     throw new Error(`Invalid PDF signature '${signature}'`);
   }
   if (buf.length < 256) {
     throw new Error(`PDF buffer too small (${buf.length} bytes)`);
   }
-  
   return buf;
 };
 
 const generatePdfBuffer = async (html, candidateList) => {
   let pdfBuffer = null;
-
-  // Method 1: Try Electron-native PDF generation
   try {
     pdfBuffer = await createPdfWithElectron(html);
-    if (pdfBuffer) {
-      return validatePdfBuffer(pdfBuffer);
-    }
+    if (pdfBuffer) return validatePdfBuffer(pdfBuffer);
   } catch (error) {
     logger.warn('Electron PDF generation error', { error: error.message });
   }
-
-  // Method 2: Try Puppeteer with multiple fallbacks
   try {
     pdfBuffer = await createPdfWithPuppeteer(html);
-    if (pdfBuffer) {
-      return validatePdfBuffer(pdfBuffer);
-    }
+    if (pdfBuffer) return validatePdfBuffer(pdfBuffer);
   } catch (error) {
     logger.warn('Puppeteer PDF generation error', { error: error.message });
   }
-
-  // Method 3: Fall back to text-only jsPDF
   try {
     if (candidateList && Array.isArray(candidateList)) {
       pdfBuffer = await createTextOnlyPdf(candidateList);
-      if (pdfBuffer) {
-        return validatePdfBuffer(Buffer.from(pdfBuffer));
-      }
+      if (pdfBuffer) return validatePdfBuffer(Buffer.from(pdfBuffer));
     }
   } catch (error) {
     logger.error('Text-only PDF fallback failed', { error: error.message });
   }
-
   throw new Error('All PDF generation methods failed. Unable to generate PDF.');
 };
 
-const createBiometricPdf = async (candidateList) => {
+const createBiometricPdf = async (candidateList, context = {}) => {
   logger.info('Starting PDF generation', { candidateCount: candidateList.length });
-  
-  const rowsHtml = buildCandidateTableRows(candidateList);
-  const template = getTemplateHtml();
-  
-  logger.debug('Template loaded', { templateLength: template.length });
-  
-  let html = template;
-  if (!html.includes('{{rows}}')) {
-    logger.warn('PDF template missing {{rows}} placeholder, falling back to raw table generation');
-    html = `<!DOCTYPE html><html><head><style>table { width: 100%; border-collapse: collapse; } td, th { border: 1px solid #444; padding: 8px; } tr { height: 180px !important; min-height: 180px !important; } td { height: 180px !important; min-height: 180px !important; }</style></head><body><table><tbody>${rowsHtml}</tbody></table></body></html>`;
-  } else {
-    html = html.replace('{{rows}}', rowsHtml);
+  if (!candidateList || !Array.isArray(candidateList) || candidateList.length === 0) {
+    throw new Error('Invalid candidate list provided for PDF generation');
   }
-  html = html.replace('{{generatedAt}}', getISTDateTime());
-  
-  logger.info('HTML generated for PDF', { 
-    htmlLength: html.length,
-    rowCount: candidateList.length,
-    containsRows: html.includes('<tr'),
-    containsStyles: html.includes('height: 180px')
+
+  const rowsHtml = buildCandidateTableRows(candidateList);
+  const bodyRowCount = countMatches(rowsHtml, /<tr\b/gi);
+  const bodyColumnCount = countMatches(rowsHtml, /<td\b/gi);
+  const bodyColumnsPerRow = bodyRowCount ? bodyColumnCount / bodyRowCount : 0;
+  const template = loadTemplateHtml();
+  const headerColumnCount = countMatches(template, /<th\b/gi);
+
+  logger.info('PDF export table dimensions', {
+    headerColumns: headerColumnCount,
+    bodyRows: bodyRowCount,
+    bodyColumns: bodyColumnCount,
+    bodyColumnsPerRow,
+    templateSource: template === DEFAULT_TEMPLATE_HTML ? 'default' : 'file',
+    templatePath: TEMPLATE_PATH
   });
-  
-  // Debug: Log a sample of the generated HTML
-  const htmlSample = html.substring(0, 1000) + '...';
-  logger.debug('Generated HTML sample', { htmlSample });
-  
+
+  if (bodyColumnsPerRow !== headerColumnCount) {
+    logger.warn('PDF body columns per row do not match header columns', {
+      headerColumnCount,
+      bodyRows: bodyRowCount,
+      bodyColumns: bodyColumnCount,
+      bodyColumnsPerRow,
+    });
+  }
+
+  const centerName = candidateList[0]?.centreName || candidateList[0]?.centre || context.centreName || 'N/A';
+  const cityName = candidateList[0]?.cityName || candidateList[0]?.city || context.cityName || 'N/A';
+  const examSlot = candidateList[0]?.examSlot || candidateList[0]?.slot || context.examSlot || 'N/A';
+  const candidateCount = candidateList.length;
+
+  const html = renderTemplate(template, {
+    rows: rowsHtml,
+    generatedAt: getISTDateTime(),
+    centerName,
+    cityName,
+    examSlot,
+    candidateCount
+  });
+
+  logger.info('HTML generated for PDF', { htmlLength: html.length, rowCount: candidateList.length, containsRows: html.includes('<tr') });
   return generatePdfBuffer(html, candidateList);
 };
 

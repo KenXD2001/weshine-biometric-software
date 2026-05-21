@@ -458,12 +458,12 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT use any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', city: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', cityName: '', examSlot: '' };
     const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
     if (tokenCentreInfo) {
       centreInfo.code = centreInfo.code || tokenCentreInfo.code;
       centreInfo.name = centreInfo.name || tokenCentreInfo.name;
-      centreInfo.city = centreInfo.city || tokenCentreInfo.city;
+      centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city;
     }
 
     let candidates = [];
@@ -521,7 +521,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         if (jsonData.centre && jsonData.centre.code) {
           centreInfo.code = jsonData.centre.code;
           centreInfo.name = jsonData.centre.name || centreInfo.name || '';
-          centreInfo.city = jsonData.centre.city || jsonData.centre.cityName || centreInfo.city || '';
+          centreInfo.cityName = jsonData.centre.city || jsonData.centre.cityName || centreInfo.cityName || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
         } else if (!centreInfo || !centreInfo.code) {
           // No centre info available from JSON or stored data
@@ -549,7 +549,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
       resolveCandidateCity(candidate, '').trim().length > 0
     );
     if (firstCandidateWithCity) {
-      centreInfo.city = resolveCandidateCity(firstCandidateWithCity, '').trim();
+      centreInfo.cityName = resolveCandidateCity(firstCandidateWithCity, '').trim();
     }
 
     const firstCandidateWithCentreCode = candidates.find((candidate) =>
@@ -569,7 +569,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
     if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
       centreInfo.code = tokenCentreInfo.code;
       centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
-      centreInfo.city = centreInfo.city || tokenCentreInfo.city || '';
+      centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city || '';
     }
 
     if (!centreInfo || !String(centreInfo.code || '').trim()) {
@@ -588,7 +588,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
     const centreNameEqualsCity =
       String(centreInfo.name || '').trim().toLowerCase() !== '' &&
-      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.city || '').trim().toLowerCase();
+      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.cityName || '').trim().toLowerCase();
 
     if (inferredCentreName && (!centreInfo.name || centreNameEqualsCity)) {
       centreInfo.name = inferredCentreName;
@@ -687,7 +687,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
         const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
         const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
-        const resolvedCandidateCity = centreInfo.city || centreInfo.city || resolveCandidateCity(candidate, centreInfo.city);
+        const resolvedCandidateCity = centreInfo.cityName || resolveCandidateCity(candidate, centreInfo.cityName);
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
@@ -1001,7 +1001,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
     if (zipMetadata && typeof zipMetadata === 'object') {
       centreInfo.centreCode = centreInfo.centreCode || String(zipMetadata.centreCode || '').trim();
       centreInfo.centreName = centreInfo.centreName || String(zipMetadata.centreName || '').trim();
-      centreInfo.cityName = centreInfo.cityName || String(zipMetadata.cityName || '').trim();
+      centreInfo.cityName = centreInfo.cityName || String(zipMetadata.cityName || zipMetadata.city || '').trim();
       centreInfo.examSlot = centreInfo.examSlot || String(zipMetadata.examSlot || '').trim();
       
       // Update candidate counts if available in metadata
@@ -1057,7 +1057,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         if (jsonData.centre && jsonData.centre.code) {
           centreInfo.code = jsonData.centre.code;
           centreInfo.name = jsonData.centre.name || centreInfo.name || '';
-          centreInfo.city = jsonData.centre.city || jsonData.centre.cityName || centreInfo.city || '';
+          centreInfo.cityName = jsonData.centre.city || jsonData.centre.cityName || centreInfo.cityName || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
         } else if (!centreInfo || !centreInfo.code) {
           throw new Error('Centre information missing in uploaded JSON and no stored centre assigned. Please login to assign a centre or include centre metadata in the upload.');
@@ -1081,7 +1081,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       resolveCandidateCity(candidate, '').trim().length > 0
     );
     if (firstCandidateWithCity) {
-      centreInfo.city = resolveCandidateCity(firstCandidateWithCity, '').trim();
+      centreInfo.cityName = resolveCandidateCity(firstCandidateWithCity, '').trim();
     }
 
     const firstCandidateWithCentreCode = candidates.find((candidate) =>
@@ -1101,7 +1101,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
     if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
       centreInfo.code = tokenCentreInfo.code;
       centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
-      centreInfo.city = centreInfo.city || tokenCentreInfo.city || '';
+      centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city || '';
     }
 
     if (!centreInfo || !String(centreInfo.code || '').trim()) {
@@ -1120,7 +1120,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
 
     const centreNameEqualsCity =
       String(centreInfo.name || '').trim().toLowerCase() !== '' &&
-      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.city || '').trim().toLowerCase();
+      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.cityName || '').trim().toLowerCase();
 
     if (inferredCentreName && (!centreInfo.name || centreNameEqualsCity)) {
       centreInfo.name = inferredCentreName;
@@ -1230,7 +1230,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
         const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
         const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
-        const resolvedCandidateCity = centreInfo.city || resolveCandidateCity(candidate, centreInfo.city);
+        const resolvedCandidateCity = centreInfo.cityName || resolveCandidateCity(candidate, centreInfo.cityNamecityName);
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
