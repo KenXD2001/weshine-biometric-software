@@ -140,10 +140,15 @@ const BiometricCandidateList: React.FC = () => {
 
     try {
       const response = await syncService.triggerImmediateSync();
-      setSyncStatusText(response.message || 'Sync completed');
+      const syncMessage = response.message || 'Sync completed';
+      setSyncStatusText(syncMessage);
+
       if (response.successful) {
+        const syncData = response.data || {};
+        const differenceMessage = buildSyncDifferenceMessage(syncData);
+        toastSuccess('Sync differences', differenceMessage, 8000);
+        toastSuccess('Sync completed', syncMessage, 5000);
         setTimeout(() => setSyncStatusText(''), 5000);
-        toastSuccess('Sync completed', response.message || 'Pending biometric items were synced.');
         fetchCandidates();
       } else {
         toastError('Sync failed', response.message || 'Unable to sync pending items');
@@ -224,6 +229,22 @@ const BiometricCandidateList: React.FC = () => {
     const date = new Date(timestamp);
     if (Number.isNaN(date.getTime())) return timestamp;
     return date.toLocaleString();
+  };
+
+  const buildSyncDifferenceMessage = (data: { totalLocalCandidates?: number; totalCloudCandidates?: number; totalMissingInCloud?: number; totalSynced?: number; totalUpdated?: number; totalAlreadyLocal?: number; totalFailed?: number; }) => {
+    const localCount = data.totalLocalCandidates ?? 0;
+    const cloudCount = data.totalCloudCandidates ?? 0;
+    const diff = Math.abs(localCount - cloudCount);
+    if (localCount === cloudCount) {
+      return `Local and cloud counts are equal (${localCount}). Difference is 0. Bi-directional sync completed.`;
+    }
+
+    const direction = localCount > cloudCount ? 'Local → Cloud' : 'Cloud → Local';
+    const countLabel = localCount > cloudCount
+      ? `Local has ${localCount}, Cloud has ${cloudCount}`
+      : `Cloud has ${cloudCount}, Local has ${localCount}`;
+
+    return `${countLabel}. Difference: ${diff}. Sync direction: ${direction}.`;
   };
 
   const getStatusBadge = (status: Candidate['biometricStatus']) => {

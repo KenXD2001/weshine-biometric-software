@@ -211,11 +211,16 @@ router.get('/connection-test', async (req, res) => {
 router.post('/manual', async (req, res) => {
   try {
     logger.info('Manual sync triggered via API', { ip: req.ip });
-    const results = await syncService.syncAllPending();
+    const pendingResults = await syncService.syncAllPending();
+    const retryResults = await syncService.retryFailedSyncs();
+
     res.json({
       successful: true,
       message: 'Manual sync completed',
-      data: results
+      data: {
+        pendingResults,
+        retryResults
+      }
     });
   } catch (error) {
     logger.error('Manual sync error', { error: error.message, stack: error.stack });
@@ -266,6 +271,23 @@ router.post('/trigger-immediate', async (req, res) => {
         requestId
       });
     }
+
+    const localSyncResults = await syncService.syncAllPending();
+    const retryResults = await syncService.retryFailedSyncs();
+
+    const localSyncSummary = {
+      pendingProcessed: localSyncResults.length,
+      pendingSuccessful: localSyncResults.filter(r => r.result.success).length,
+      pendingFailed: localSyncResults.filter(r => !r.result.success).length,
+      retryProcessed: retryResults.retried,
+      retrySuccessful: retryResults.successful,
+      retryFailed: retryResults.failed
+    };
+
+    logger.info('Local-to-cloud sync completed before cloud fetch', {
+      requestId,
+      localSyncSummary
+    });
 
     const candidates = candidatesModule.getCandidates();
     const candidateLookupKeys = candidates
@@ -560,9 +582,10 @@ router.post('/trigger-immediate', async (req, res) => {
 
     const processingTime = Date.now() - startTime;
 
-    logger.info('Immediate cloud-to-local biometric sync completed', {
+    logger.info('Bi-directional biometric sync completed', {
       requestId,
       summary: {
+        localSync: localSyncSummary,
         totalLocalCandidates: summary.totalLocalCandidates,
         totalCloudCandidates: summary.totalCloudCandidates,
         totalSynced: summary.totalSynced,
@@ -580,8 +603,9 @@ router.post('/trigger-immediate', async (req, res) => {
 
     res.json({
       successful: true,
-      message: 'Cloud-to-local biometric sync completed',
+      message: 'Bi-directional sync completed',
       data: {
+        localSyncSummary,
         ...summary,
         totalDownloadedImages,
         totalDownloadSizeKB: (totalDownloadSize / 1024).toFixed(2),
