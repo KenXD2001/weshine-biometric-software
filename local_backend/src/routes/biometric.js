@@ -222,8 +222,11 @@ router.post('/submit-face-capture', async (req, res) => {
     // ASYNC: Send face data to cloud using new sync service
     (async () => {
       try {
-        // Update sync state with image path BEFORE attempting sync
+        // Reset sync state so manual recapture is uploaded again
         syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'face', {
+          synced: false,
+          error: null,
+          retryCount: 0,
           localPath: capturedImagePath
         });
         
@@ -248,7 +251,7 @@ router.post('/submit-face-capture', async (req, res) => {
           localImagePath: capturedImagePath // Add image path for sync
         };
         
-        await syncService.syncBiometricData(candidateData, 'face');
+        await syncService.syncBiometricData(candidateData, 'face', { force: true });
       } catch (syncError) {
         if (syncError) logger.error('Face sync error:', syncError);
       }
@@ -351,8 +354,11 @@ router.post('/submit-thumb-capture', async (req, res) => {
     // ASYNC: Send thumb data to cloud using new sync service
     (async () => {
       try {
-        // Update sync state with image path BEFORE attempting sync
+        // Reset sync state so manual recapture is uploaded again
         syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'thumb', {
+          synced: false,
+          error: null,
+          retryCount: 0,
           localPath: biometricImagePath
         });
         
@@ -377,7 +383,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
           localImagePath: biometricImagePath // Add image path for sync
         };
         
-        await syncService.syncBiometricData(candidateData, 'thumb');
+        await syncService.syncBiometricData(candidateData, 'thumb', { force: true });
       } catch (syncError) {
         logger.error('Thumb sync error:', syncError);
       }

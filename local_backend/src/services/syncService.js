@@ -59,7 +59,7 @@ class SyncService {
   }
 
   // Sync biometric data to cloud with confirmation
-  async syncBiometricData(candidateData, biometricType) {
+  async syncBiometricData(candidateData, biometricType, options = {}) {
     const syncId = this.generateSyncId(candidateData.hallTicket, biometricType);
     const startTime = Date.now();
     let imageFilePath = null; // Declare at function scope
@@ -68,13 +68,20 @@ class SyncService {
       // Skip if already successfully synced — prevents race conditions where the
       // periodic scheduler fires while an immediate sync is still in flight.
       const existingStatus = this.syncStateManager.getCandidateSyncStatus(candidateData.hallTicket);
-      if (existingStatus?.[biometricType]?.synced === true) {
+      if (existingStatus?.[biometricType]?.synced === true && !options.force) {
         logger.info('Skipping biometric sync: already synced', {
           hallTicket: candidateData.hallTicket,
           biometricType,
           cloudId: existingStatus[biometricType].cloudId
         });
         return { success: true, skipped: true, cloudId: existingStatus[biometricType].cloudId };
+      }
+      if (existingStatus?.[biometricType]?.synced === true && options.force) {
+        logger.info('Forcing biometric sync despite prior successful sync', {
+          hallTicket: candidateData.hallTicket,
+          biometricType,
+          cloudId: existingStatus[biometricType].cloudId
+        });
       }
 
       logger.info('Starting biometric sync', {
@@ -418,12 +425,63 @@ class SyncService {
     }
   }
 
+  async enqueueLocalCandidatesForSync() {
+    try {
+      const candidatesModule = require('../routes/candidates');
+      const candidates = candidatesModule.getCandidates();
+      if (!Array.isArray(candidates) || candidates.length === 0) return;
+
+      for (const candidate of candidates) {
+        const hallTicket = candidate.hallTicket;
+        if (!hallTicket) continue;
+
+        const syncStatus = this.syncStateManager.getCandidateSyncStatus(hallTicket) || {};
+
+        // Enqueue face sync if local face is complete but cloud record is missing
+        if (candidate.faceStatus === 'Completed' && !candidate.cloudFaceId) {
+          const faceStatus = syncStatus.face || {};
+          if (!faceStatus.synced) {
+            this.syncStateManager.updateSyncStatus(hallTicket, 'face', {
+              localPath: candidate.capturedImagePath || faceStatus.localPath || null,
+              synced: false,
+              error: null,
+              retryCount: faceStatus.retryCount || 0,
+              syncId: faceStatus.syncId
+            });
+          }
+        }
+
+        // Enqueue thumb sync if local thumb is complete but cloud record is missing
+        if (candidate.thumbStatus === 'Completed' && !candidate.cloudThumbId) {
+          const thumbStatus = syncStatus.thumb || {};
+          if (!thumbStatus.synced) {
+            this.syncStateManager.updateSyncStatus(hallTicket, 'thumb', {
+              localPath: candidate.biometricImagePath || thumbStatus.localPath || null,
+              synced: false,
+              error: null,
+              retryCount: thumbStatus.retryCount || 0,
+              syncId: thumbStatus.syncId
+            });
+          }
+        }
+      }
+    } catch (error) {
+      logger.error('Failed to enqueue local candidates for sync', {
+        error: error.message,
+        stack: error.stack
+      });
+    }
+  }
+
   // Sync all pending items
   async syncAllPending() {
     if (this.syncInProgress) {
       logger.warn('Sync already in progress, skipping');
       return [];
     }
+
+    // Ensure locally completed biometric records are added to pending sync state
+    await this.enqueueLocalCandidatesForSync();
 
     this.syncInProgress = true;
     const pendingItems = this.syncStateManager.getPendingSync();
