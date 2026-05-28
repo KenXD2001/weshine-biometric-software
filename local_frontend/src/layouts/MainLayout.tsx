@@ -183,14 +183,14 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
         {/* Center - Title */}
         <div className="absolute left-1/2 transform -translate-x-1/2 hidden sm:block">
           <p className="text-lg uppercase font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent text-center whitespace-nowrap">
-            Digiparikshak Biometric Software
+            WeShineTech Biometric Software
           </p>
         </div>
 
         {/* Mobile Title */}
         <div className="sm:hidden absolute left-1/2 transform -translate-x-1/2">
           <h1 className="text-xs font-semibold text-gray-900 text-center">
-            Digiparikshak
+            WeShineTech
           </h1>
         </div>
 

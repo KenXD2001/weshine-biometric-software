@@ -15,12 +15,12 @@ class SyncService {
   }
 
   // Generate unique sync ID
-  generateSyncId(hallTicket, biometricType) {
-    return `sync_${Date.now()}_${hallTicket}_${biometricType}_${Math.random().toString(36).substr(2, 9)}`;
+  generateSyncId(candidateKey, biometricType) {
+    return `sync_${Date.now()}_${candidateKey}_${biometricType}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
   // Convert base64 to image file for sync
-  prepareImageFile(base64Data, imageType, hallTicket) {
+  prepareImageFile(base64Data, imageType, candidateKey) {
     try {
       if (!base64Data) return null;
 
@@ -35,14 +35,14 @@ class SyncService {
       }
 
       // Save as PNG file
-      const fileName = `${imageType}_${hallTicket}_${Date.now()}.png`;
+      const fileName = `${imageType}_${candidateKey}_${Date.now()}.png`;
       const filePath = path.join(tempDir, fileName);
       
       fs.writeFileSync(filePath, buffer);
 
       logger.debug('Image file prepared for sync', {
         imageType,
-        hallTicket,
+        candidateKey,
         fileName,
         sizeBytes: buffer.length
       });
@@ -51,7 +51,7 @@ class SyncService {
     } catch (error) {
       logger.error('Error preparing image file for sync', {
         imageType,
-        hallTicket,
+        candidateKey,
         error: error.message
       });
       return null;
@@ -60,17 +60,18 @@ class SyncService {
 
   // Sync biometric data to cloud with confirmation
   async syncBiometricData(candidateData, biometricType, options = {}) {
-    const syncId = this.generateSyncId(candidateData.hallTicket, biometricType);
+    const candidateKey = candidateData.applicationNumber || candidateData.userExamApplicationId || candidateData.id || candidateData.hallTicket || '';
+    const syncId = this.generateSyncId(candidateKey, biometricType);
     const startTime = Date.now();
     let imageFilePath = null; // Declare at function scope
     
     try {
       // Skip if already successfully synced — prevents race conditions where the
       // periodic scheduler fires while an immediate sync is still in flight.
-      const existingStatus = this.syncStateManager.getCandidateSyncStatus(candidateData.hallTicket);
+      const existingStatus = this.syncStateManager.getCandidateSyncStatus(candidateKey);
       if (existingStatus?.[biometricType]?.synced === true && !options.force) {
         logger.info('Skipping biometric sync: already synced', {
-          hallTicket: candidateData.hallTicket,
+          applicationNumber: candidateKey,
           biometricType,
           cloudId: existingStatus[biometricType].cloudId
         });
@@ -78,7 +79,7 @@ class SyncService {
       }
       if (existingStatus?.[biometricType]?.synced === true && options.force) {
         logger.info('Forcing biometric sync despite prior successful sync', {
-          hallTicket: candidateData.hallTicket,
+          applicationNumber: candidateKey,
           biometricType,
           cloudId: existingStatus[biometricType].cloudId
         });
@@ -86,7 +87,7 @@ class SyncService {
 
       logger.info('Starting biometric sync', {
         syncId,
-        hallTicket: candidateData.hallTicket,
+        applicationNumber: candidateKey,
         biometricType,
         localBackendId: this.syncStateManager.localBackendId
       });
@@ -94,7 +95,7 @@ class SyncService {
       // Mark as in-progress — do NOT reset retryCount here.
       // retryCount is only incremented by markAsFailed on actual failure.
       // Resetting it to 0 on every attempt was causing infinite retry loops.
-      this.syncStateManager.updateSyncStatus(candidateData.hallTicket, biometricType, {
+      this.syncStateManager.updateSyncStatus(candidateKey, biometricType, {
         syncId,
         synced: false,
         lastAttempt: new Date().toISOString()
@@ -115,13 +116,13 @@ class SyncService {
 
         if (imageFilePath) {
           logger.debug('Using existing image file', {
-            hallTicket: candidateData.hallTicket,
+            applicationNumber: candidateKey,
             biometricType,
             imagePath: imageFilePath
           });
         } else {
           logger.debug('Existing local image path not found, falling back to base64', {
-            hallTicket: candidateData.hallTicket,
+            applicationNumber: candidateKey,
             biometricType,
             attemptedPath: candidateData.localImagePath
           });
@@ -131,23 +132,23 @@ class SyncService {
       if (!imageFilePath) {
         if (candidateData.faceData && biometricType === 'face') {
           // Fallback: create image from base64 data
-          imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateData.hallTicket);
+          imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateKey);
           logger.debug('Created image file from base64', {
-            hallTicket: candidateData.hallTicket,
+            applicationNumber: candidateKey,
             biometricType,
             imagePath: imageFilePath
           });
         } else if (candidateData.thumbData && biometricType === 'thumb') {
           // Fallback: create image from base64 data
-          imageFilePath = this.prepareImageFile(candidateData.thumbData, 'thumb', candidateData.hallTicket);
+          imageFilePath = this.prepareImageFile(candidateData.thumbData, 'thumb', candidateKey);
           logger.debug('Created image file from base64', {
-            hallTicket: candidateData.hallTicket,
+            applicationNumber: candidateKey,
             biometricType,
             imagePath: imageFilePath
           });
         } else {
           logger.warn('No image data available for sync', {
-            hallTicket: candidateData.hallTicket,
+            applicationNumber: candidateKey,
             biometricType,
             hasLocalPath: !!candidateData.localImagePath,
             hasFaceData: !!candidateData.faceData,
@@ -166,13 +167,13 @@ class SyncService {
         const errMsg = 'No image file available for sync — all sources exhausted';
         logger.warn(errMsg, {
           syncId,
-          hallTicket: candidateData.hallTicket,
+          applicationNumber: candidateKey,
           biometricType,
           hasLocalPath: !!candidateData.localImagePath,
           hasFaceData: !!candidateData.faceData,
           hasThumbData: !!candidateData.thumbData
         });
-        this.syncStateManager.markAsFailed(candidateData.hallTicket, biometricType, errMsg);
+        this.syncStateManager.markAsFailed(candidateKey, biometricType, errMsg);
         return { success: false, error: errMsg };
       }
 
@@ -180,9 +181,8 @@ class SyncService {
       const metadata = {
         syncId,
         localBackendId: this.syncStateManager.localBackendId,
-        hallTicket: candidateData.hallTicket,
+        applicationNumber: candidateKey,
         slot: candidateData.slot || candidateData.examSlot || null,
-        candidateId: candidateData.userExamApplicationId || candidateData.id || candidateData.hallTicket,
         candidateName: candidateData.candidateName,
         emailId: candidateData.emailId,
         phone: candidateData.phone || '',
@@ -193,10 +193,7 @@ class SyncService {
         centreName: candidateData.centreName || '',
         examSlot: candidateData.examSlot || '',
         examId: candidateData.examId || '',
-        userExamApplicationId: candidateData.userExamApplicationId || '',
-        timestamp: candidateData.timestamp || new Date().toISOString(),
-        // Template data for fingerprint
-        ISOTemplateBase64: candidateData.ISOTemplateBase64 || null,
+        userExamApplicationId: candidateData.userExamApplicationId || candidateKey,
         TemplateBase64: candidateData.TemplateBase64 || null
       };
       
@@ -227,12 +224,12 @@ class SyncService {
         }
         
         // Success - update sync state
-        this.syncStateManager.markAsSynced(candidateData.hallTicket, biometricType, response.data.cloudId);
+        this.syncStateManager.markAsSynced(candidateKey, biometricType, response.data.cloudId);
         this.syncStateManager.updateLastSyncTimestamp();
 
         logger.success('Biometric sync completed', {
           syncId,
-          hallTicket: candidateData.hallTicket,
+          applicationNumber: candidateKey,
           biometricType,
           cloudId: response.data.cloudId,
           processingTime,
@@ -255,11 +252,11 @@ class SyncService {
       const errorMessage = error.response?.data?.error || error.message;
       
       // Update sync state with error
-      this.syncStateManager.markAsFailed(candidateData.hallTicket, biometricType, errorMessage);
+      this.syncStateManager.markAsFailed(candidateKey, biometricType, errorMessage);
 
       logger.error('Biometric sync failed', {
         syncId,
-        hallTicket: candidateData.hallTicket,
+        applicationNumber: candidateKey,
         biometricType,
         error: errorMessage,
         processingTime,
@@ -321,9 +318,10 @@ class SyncService {
 
     // Retry pending items (those not yet synced). We only attempt items whose retryCount < maxRetries
     for (const item of pendingItems) {
+      const candidateKey = String(item.applicationNumber || item.hallTicket || '').trim();
       if (item.retryCount >= this.maxRetries) {
         logger.warn('Item reached max retries, skipping until marked failed', {
-          hallTicket: item.hallTicket,
+          applicationNumber: candidateKey,
           biometricType: item.biometricType,
           retryCount: item.retryCount
         });
@@ -333,7 +331,7 @@ class SyncService {
       const delay = Math.pow(2, item.retryCount) * this.baseDelay;
 
       logger.info('Retrying pending sync', {
-        hallTicket: item.hallTicket,
+        applicationNumber: candidateKey,
         biometricType: item.biometricType,
         retryCount: item.retryCount,
         delay
@@ -343,10 +341,10 @@ class SyncService {
       await new Promise(resolve => setTimeout(resolve, delay));
 
       // Don't reset retry count before attempting; let markAsFailed increment it on failure
-      const candidateData = await this.getCandidateData(item.hallTicket);
+      const candidateData = await this.getCandidateData(candidateKey);
       if (candidateData) {
         // Add image path from sync state
-        const syncStatus = this.syncStateManager.getCandidateSyncStatus(item.hallTicket);
+        const syncStatus = this.syncStateManager.getCandidateSyncStatus(candidateKey);
         if (syncStatus && syncStatus[item.biometricType]) {
           candidateData.localImagePath = syncStatus[item.biometricType].localPath;
         }
@@ -360,7 +358,7 @@ class SyncService {
           } else {
             results.failed++;
             results.errors.push({
-              hallTicket: item.hallTicket,
+              applicationNumber: candidateKey,
               biometricType: item.biometricType,
               error: result.error
             });
@@ -368,13 +366,13 @@ class SyncService {
         } catch (syncError) {
           results.failed++;
           results.errors.push({
-            hallTicket: item.hallTicket,
+            applicationNumber: candidateKey,
             biometricType: item.biometricType,
             error: syncError.message
           });
         }
       } else {
-        logger.warn('Candidate data not found for retry', { hallTicket: item.hallTicket });
+        logger.warn('Candidate data not found for retry', { applicationNumber: candidateKey });
       }
     }
 
@@ -386,16 +384,20 @@ class SyncService {
   }
 
   // Get candidate data (implement based on your data structure)
-  async getCandidateData(hallTicket) {
+  async getCandidateData(candidateKey) {
     try {
       // This would typically fetch from your candidates data store
       const candidatesModule = require('../routes/candidates');
       const candidates = candidatesModule.getCandidates();
-      const candidate = candidates.find(c => c.hallTicket === hallTicket);
+      const normalizedKey = String(candidateKey || '').trim().toLowerCase();
+      const candidate = candidates.find((c) => {
+        const candidateLookupKey = String(c.applicationNumber || c.userExamApplicationId || c.id || c.hallTicket || '').trim().toLowerCase();
+        return candidateLookupKey === normalizedKey;
+      });
       
       if (candidate) {
         return {
-          hallTicket: candidate.hallTicket,
+          applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '',
           id: candidate.id,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -406,7 +408,7 @@ class SyncService {
           examSlot: candidate.examSlot,
           slot: candidate.slot || candidate.examSlot || '',
           examId: candidate.examId,
-          userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || '',
+          userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || candidate.hallTicket || '',
           timestamp: candidate.timestamp,
           faceData: candidate.faceCaptureData,
           thumbData: candidate.thumbCaptureData,
@@ -418,7 +420,7 @@ class SyncService {
       return null;
     } catch (error) {
       logger.error('Error getting candidate data for sync', {
-        hallTicket,
+        candidateKey,
         error: error.message
       });
       return null;
@@ -432,16 +434,16 @@ class SyncService {
       if (!Array.isArray(candidates) || candidates.length === 0) return;
 
       for (const candidate of candidates) {
-        const hallTicket = candidate.hallTicket;
-        if (!hallTicket) continue;
+        const candidateKey = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '').trim();
+        if (!candidateKey) continue;
 
-        const syncStatus = this.syncStateManager.getCandidateSyncStatus(hallTicket) || {};
+        const syncStatus = this.syncStateManager.getCandidateSyncStatus(candidateKey) || {};
 
         // Enqueue face sync if local face is complete but cloud record is missing
         if (candidate.faceStatus === 'Completed' && !candidate.cloudFaceId) {
           const faceStatus = syncStatus.face || {};
           if (!faceStatus.synced) {
-            this.syncStateManager.updateSyncStatus(hallTicket, 'face', {
+            this.syncStateManager.updateSyncStatus(candidateKey, 'face', {
               localPath: candidate.capturedImagePath || faceStatus.localPath || null,
               synced: false,
               error: null,
@@ -455,7 +457,7 @@ class SyncService {
         if (candidate.thumbStatus === 'Completed' && !candidate.cloudThumbId) {
           const thumbStatus = syncStatus.thumb || {};
           if (!thumbStatus.synced) {
-            this.syncStateManager.updateSyncStatus(hallTicket, 'thumb', {
+            this.syncStateManager.updateSyncStatus(candidateKey, 'thumb', {
               localPath: candidate.biometricImagePath || thumbStatus.localPath || null,
               synced: false,
               error: null,
@@ -498,17 +500,18 @@ class SyncService {
     const results = [];
 
     for (const item of pendingItems) {
-      const candidateData = await this.getCandidateData(item.hallTicket);
+      const candidateKey = String(item.applicationNumber || item.hallTicket || '').trim();
+      const candidateData = await this.getCandidateData(candidateKey);
       if (candidateData) {
         // Add image path from sync state
-        const syncStatus = this.syncStateManager.getCandidateSyncStatus(item.hallTicket);
+        const syncStatus = this.syncStateManager.getCandidateSyncStatus(candidateKey);
         if (syncStatus && syncStatus[item.biometricType]) {
           candidateData.localImagePath = syncStatus[item.biometricType].localPath;
         }
         
         const result = await this.syncBiometricData(candidateData, item.biometricType);
         results.push({
-          hallTicket: item.hallTicket,
+          applicationNumber: candidateKey,
           biometricType: item.biometricType,
           result
         });
@@ -561,7 +564,7 @@ class SyncService {
     }
   }
 
-  // Fetch biometric records from cloud backend for the given hall tickets
+  // Fetch biometric records from cloud backend for the given application numbers
   async fetchCloudBiometricRecords(candidateLookupKeys) {
     const requestId = `fetch_cloud_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const startTime = Date.now();
@@ -593,7 +596,7 @@ class SyncService {
       const response = await axios.post(
         `${this.cloudBackendUrl}/api/sync/biometric-records`,
         { 
-          hallTickets: candidateLookupKeys,
+          applicationNumbers: candidateLookupKeys,
           localBackendId: this.syncStateManager.localBackendId
         },
         {

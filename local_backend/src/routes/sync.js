@@ -15,29 +15,29 @@ const sanitizeFolderName = (name) => {
   return name.replace(/[<>:"/\\|?*]/g, '-').replace(/\s+/g, '_').replace(/-+/g, '-').trim();
 };
 
-const downloadCloudImage = async (url, hallTicket, imageType) => {
+const downloadCloudImage = async (url, candidateKey, imageType) => {
   const requestId = `download_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   const startTime = Date.now();
   
-  if (!url || !hallTicket || !imageType) {
+  if (!url || !candidateKey || !imageType) {
     logger.warn('Invalid parameters for image download', {
       requestId,
       url: !!url,
-      hallTicket: !!hallTicket,
+      candidateKey: !!candidateKey,
       imageType: !!imageType,
       reason: 'Missing required parameters'
     });
     return null;
   }
 
-  const sanitizedHallTicket = sanitizeFolderName(hallTicket);
+  const sanitizedCandidateKey = sanitizeFolderName(candidateKey);
   const filename = `${imageType}_${Date.now()}.png`;
-  const candidateDir = path.join(__dirname, '../../data/candidates-data', sanitizedHallTicket);
+  const candidateDir = path.join(__dirname, '../../data/candidates-data', sanitizedCandidateKey);
 
   try {
     logger.info('Starting cloud image download', {
       requestId,
-      hallTicket,
+      candidateKey,
       imageType,
       url,
       filename,
@@ -66,7 +66,7 @@ const downloadCloudImage = async (url, hallTicket, imageType) => {
 
     logger.info('Cloud image downloaded successfully', {
       requestId,
-      hallTicket,
+      candidateKey,
       imageType,
       url,
       filePath,
@@ -76,13 +76,13 @@ const downloadCloudImage = async (url, hallTicket, imageType) => {
       timestamp: new Date().toISOString()
     });
 
-    return `/data/candidates-data/${sanitizedHallTicket}/${filename}`;
+    return `/data/candidates-data/${sanitizedCandidateKey}/${filename}`;
   } catch (error) {
     const processingTime = Date.now() - startTime;
     
     logger.error('Failed to download cloud image', {
       requestId,
-      hallTicket,
+      candidateKey,
       imageType,
       url,
       error: error.message,
@@ -290,7 +290,7 @@ router.post('/trigger-immediate', async (req, res) => {
 
     const candidates = candidatesModule.getCandidates();
     const candidateLookupKeys = candidates
-      .map((candidate) => candidate.hallTicket)
+      .map((candidate) => String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '').trim())
       .filter(Boolean);
 
     logger.info('Fetching candidate biometric records from cloud', {
@@ -317,20 +317,19 @@ router.post('/trigger-immediate', async (req, res) => {
 
     const candidateMap = new Map();
     candidates.forEach((candidate) => {
-      if (candidate.id) {
-        candidateMap.set(String(candidate.id), candidate);
-      }
-      if (candidate.hallTicket) {
-        candidateMap.set(String(candidate.hallTicket), candidate);
+      const candidateKey = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '').trim();
+      if (candidateKey) {
+        candidateMap.set(candidateKey, candidate);
       }
     });
 
-    const recordMap = new Map(records.map((record) => [String(record.hallTicket), record]));
+    const recordMap = new Map(records.map((record) => [String(record.applicationNumber || record.hallTicket || record.candidateId || '').trim(), record]));
 
     const syncMissingCloudData = async (candidate, record, detail) => {
       let updated = false;
+      const candidateKey = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '').trim();
       const candidateData = {
-        hallTicket: candidate.hallTicket,
+        applicationNumber: candidateKey,
         id: candidate.id,
         candidateName: candidate.candidateName,
         emailId: candidate.emailId,
@@ -341,7 +340,7 @@ router.post('/trigger-immediate', async (req, res) => {
         examSlot: candidate.examSlot || candidate.slot || '',
         slot: candidate.slot || candidate.examSlot || '',
         examId: candidate.examId || '',
-        userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || '',
+        userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || candidate.hallTicket || '',
         timestamp: candidate.submitTimestamp || candidate.thumbCaptureTimestamp || candidate.imageCaptureTimestamp || new Date().toISOString(),
         faceData: candidate.faceCaptureData || null,
         thumbData: candidate.thumbCaptureData || null,
@@ -349,19 +348,19 @@ router.post('/trigger-immediate', async (req, res) => {
         TemplateBase64: candidate.TemplateBase64 || null
       };
 
-      const syncStatus = syncService.syncStateManager.getCandidateSyncStatus(candidate.hallTicket) || {};
+      const syncStatus = syncService.syncStateManager.getCandidateSyncStatus(candidateKey) || {};
       const faceLocalPath = candidate.capturedImagePath || syncStatus.face?.localPath || null;
       const thumbLocalPath = candidate.biometricImagePath || syncStatus.thumb?.localPath || null;
 
       if ((!record.face || !record.hasBiometric) && candidate.faceStatus === 'Completed') {
         logger.info('Attempting cloud upload for missing face biometric', {
           requestId,
-          hallTicket: candidate.hallTicket,
+          applicationNumber: candidateKey,
           faceLocalPath,
           hasFaceData: !!candidate.faceCaptureData
         });
 
-        syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'face', {
+        syncService.syncStateManager.updateSyncStatus(candidateKey, 'face', {
           synced: false,
           error: null,
           retryCount: syncStatus.face?.retryCount || 0,
@@ -384,12 +383,12 @@ router.post('/trigger-immediate', async (req, res) => {
       if ((!record.thumb || !record.hasBiometric) && candidate.thumbStatus === 'Completed') {
         logger.info('Attempting cloud upload for missing thumb biometric', {
           requestId,
-          hallTicket: candidate.hallTicket,
+          applicationNumber: candidateKey,
           thumbLocalPath,
           hasThumbData: !!candidate.thumbCaptureData
         });
 
-        syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'thumb', {
+        syncService.syncStateManager.updateSyncStatus(candidateKey, 'thumb', {
           synced: false,
           error: null,
           retryCount: syncStatus.thumb?.retryCount || 0,
@@ -428,8 +427,9 @@ router.post('/trigger-immediate', async (req, res) => {
     let totalDownloadSize = 0;
 
     for (const candidate of candidates) {
-      const record = recordMap.get(String(candidate.hallTicket)) || {
-        hallTicket: candidate.hallTicket,
+      const candidateKey = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '').trim();
+      const record = recordMap.get(candidateKey) || {
+        applicationNumber: candidateKey,
         hasBiometric: false,
         face: null,
         thumb: null,
@@ -437,7 +437,7 @@ router.post('/trigger-immediate', async (req, res) => {
       };
 
       const detail = {
-        hallTicket: candidate.hallTicket,
+        applicationNumber: candidateKey,
         hasBiometricInCloud: record.hasBiometric,
         synced: false,
         updated: false,
@@ -469,7 +469,7 @@ router.post('/trigger-immediate', async (req, res) => {
 
       logger.debug('Processing candidate biometric sync', {
         requestId,
-        hallTicket: candidate.hallTicket,
+        applicationNumber: candidateKey,
         hasFace: !!record.face,
         hasThumb: !!record.thumb,
         hasTemplate: !!record.additionalDetails,
@@ -487,14 +487,14 @@ router.post('/trigger-immediate', async (req, res) => {
         if (shouldUpdateFace) {
           logger.debug('Syncing face biometric from cloud', {
             requestId,
-            hallTicket: record.hallTicket,
+            applicationNumber: record.applicationNumber || record.hallTicket,
             cloudTimestamp: cloudFaceTimestamp?.toISOString(),
             localTimestamp: localFaceTimestamp?.toISOString(),
             reason: !candidate.faceStatus ? 'No local face' : (cloudFaceTimestamp > localFaceTimestamp ? 'Cloud is newer' : 'Local update needed')
           });
 
           const localPath = record.face.imageUrl && !record.face.imageUrl.startsWith('local:')
-            ? await downloadCloudImage(record.face.imageUrl, record.hallTicket, 'face')
+            ? await downloadCloudImage(record.face.imageUrl, record.applicationNumber || record.hallTicket, 'face')
             : record.face.imageUrl;
 
           if (localPath && localPath !== record.face.imageUrl) {
@@ -511,7 +511,7 @@ router.post('/trigger-immediate', async (req, res) => {
             } catch (sizeError) {
               logger.debug('Could not get downloaded file size', {
                 requestId,
-                hallTicket: record.hallTicket,
+                applicationNumber: record.applicationNumber || record.hallTicket,
                 localPath,
                 error: sizeError.message
               });
@@ -528,7 +528,7 @@ router.post('/trigger-immediate', async (req, res) => {
           
           logger.info('Face biometric synced successfully', {
             requestId,
-            hallTicket: record.hallTicket,
+            applicationNumber: record.applicationNumber || record.hallTicket,
             localPath,
             cloudId: record.face.id
           });
@@ -545,14 +545,14 @@ router.post('/trigger-immediate', async (req, res) => {
         if (shouldUpdateThumb) {
           logger.debug('Syncing thumb biometric from cloud', {
             requestId,
-            hallTicket: record.hallTicket,
+            applicationNumber: record.applicationNumber || record.hallTicket,
             cloudTimestamp: cloudThumbTimestamp?.toISOString(),
             localTimestamp: localThumbTimestamp?.toISOString(),
             reason: !candidate.thumbStatus ? 'No local thumb' : (cloudThumbTimestamp > localThumbTimestamp ? 'Cloud is newer' : 'Local update needed')
           });
 
           const localPath = record.thumb.imageUrl && !record.thumb.imageUrl.startsWith('local:')
-            ? await downloadCloudImage(record.thumb.imageUrl, record.hallTicket, 'thumb')
+            ? await downloadCloudImage(record.thumb.imageUrl, record.applicationNumber || record.hallTicket, 'thumb')
             : record.thumb.imageUrl;
 
           if (localPath && localPath !== record.thumb.imageUrl) {
@@ -569,7 +569,7 @@ router.post('/trigger-immediate', async (req, res) => {
             } catch (sizeError) {
               logger.debug('Could not get downloaded file size', {
                 requestId,
-                hallTicket: record.hallTicket,
+                applicationNumber: record.applicationNumber || record.hallTicket,
                 localPath,
                 error: sizeError.message
               });
@@ -586,7 +586,7 @@ router.post('/trigger-immediate', async (req, res) => {
           
           logger.info('Thumb biometric synced successfully', {
             requestId,
-            hallTicket: record.hallTicket,
+            applicationNumber: record.applicationNumber || record.hallTicket,
             localPath,
             cloudId: record.thumb.id
           });
@@ -614,7 +614,7 @@ router.post('/trigger-immediate', async (req, res) => {
         if (templateChanged) {
           logger.info('Template data synced successfully', {
             requestId,
-            hallTicket: record.hallTicket,
+            applicationNumber: record.applicationNumber || record.hallTicket,
             hasISO: !!record.additionalDetails.ISOTemplateBase64,
             hasTemplate: !!record.additionalDetails.TemplateBase64
           });
@@ -635,7 +635,7 @@ router.post('/trigger-immediate', async (req, res) => {
         
         logger.info('Candidate biometric data updated', {
           requestId,
-          hallTicket: record.hallTicket,
+          applicationNumber: record.applicationNumber || record.hallTicket,
           beforeStatus,
           afterStatus: {
             face: candidate.faceStatus,
@@ -806,7 +806,7 @@ router.post('/test-sync', async (req, res) => {
     // Test 4: Mock Sync Data (without actual data)
     try {
       const mockCandidateData = {
-        hallTicket: 'TEST_' + Date.now(),
+        applicationNumber: 'TEST_' + Date.now(),
         id: 'TEST_CANDIDATE',
         candidateName: 'Test Candidate',
         emailId: 'test@example.com',
@@ -825,12 +825,12 @@ router.post('/test-sync', async (req, res) => {
       };
 
       // Test sync data preparation (without actually sending)
-      const syncId = syncService.generateSyncId(mockCandidateData.hallTicket, 'face');
+      const syncId = syncService.generateSyncId(mockCandidateData.applicationNumber, 'face');
       testResults.tests.syncDataPreparation = {
         success: true,
         data: {
           syncId,
-          hallTicket: mockCandidateData.hallTicket,
+          applicationNumber: mockCandidateData.applicationNumber,
           biometricType: 'face'
         },
         message: 'Sync data preparation working'
