@@ -35,7 +35,6 @@ let frontendProcess = null;
 const BACKEND_PORT = process.env.PORT || 8080;
 const BACKEND_HOST = process.env.HOST || '0.0.0.0';
 const FRONTEND_PORT = process.env.FRONTEND_PORT || 3030;
-const CLOUD_BACKEND_URL = process.env.CLOUD_BACKEND_URL || 'http://localhost:8040';
 
 // Log configuration information
 log.info('=== APPLICATION CONFIGURATION ===');
@@ -46,8 +45,7 @@ log.info(`  - Full URL: http://${BACKEND_HOST}:${BACKEND_PORT}`);
 log.info('Frontend Configuration:');
 log.info(`  - Port: ${FRONTEND_PORT}`);
 log.info(`  - Full URL: http://localhost:${FRONTEND_PORT}`);
-log.info('Cloud Backend Configuration:');
-log.info(`  - URL: ${CLOUD_BACKEND_URL}`);
+log.info('Standalone local-only backend mode');
 log.info('================================');
 
 /**

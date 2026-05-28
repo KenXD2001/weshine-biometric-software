@@ -3,6 +3,7 @@ import ExaminationDetails from '../components/ExaminationDetails';
 import BiometricDetails from '../components/BiometricDetails';
 import SessionDetails from '../components/SessionDetails';
 import CandidateDetails from '../components/CandidateDetails';
+import ThumbTemplateStatus from '../components/ThumbTemplateStatus';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ToastContainer from '../components/Toast/ToastContainer';
 import { useToast } from '../hooks/useToast';
@@ -50,6 +51,8 @@ const BiometricSoftware: React.FC = () => {
   const [candidateSlot, setCandidateSlot] = useState('');
   const [candidateApplicationId, setCandidateApplicationId] = useState('');
   const [thumbTemplate, setThumbTemplate] = useState({ isoTemplateBase64: '', templateBase64: '' });
+  const [oldThumbTemplateBase64, setOldThumbTemplateBase64] = useState('');
+  const [matchStatus, setMatchStatus] = useState<'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown'>('unknown');
   const [thumbCaptureTimestamp, setThumbCaptureTimestamp] = useState('');
   const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,6 +129,8 @@ const BiometricSoftware: React.FC = () => {
     setIsWebcamActive(newState);
   };
 
+  const templateAvailable = Boolean(oldThumbTemplateBase64);
+
   const handleSubmit = async (submitApplicationNumber: string) => {
     if (!submitApplicationNumber.trim()) {
       toastWarning('Missing Application Number', 'Please enter an Application Number and load candidate details before submitting.');
@@ -156,11 +161,14 @@ const BiometricSoftware: React.FC = () => {
         toastInfo('No Webcam Capture', 'No captured webcam image available yet.');
       }
 
-      // Submit captured thumb data (from biometricImagePath)
-      if (imagePaths.biometricImagePath && imagePaths.biometricImagePath.startsWith('data:')) {
+      // Submit thumb data or existing template when old template was present and match was attempted
+      const shouldSubmitThumb = (imagePaths.biometricImagePath && imagePaths.biometricImagePath.startsWith('data:'))
+        || (templateAvailable && capturedImages.thumb);
+
+      if (shouldSubmitThumb) {
         thumbResult = await biometricService.submitThumbCapture(
           submitApplicationNumber,
-          imagePaths.biometricImagePath,
+          imagePaths.biometricImagePath && imagePaths.biometricImagePath.startsWith('data:') ? imagePaths.biometricImagePath : undefined,
           thumbTemplate.isoTemplateBase64,
           thumbTemplate.templateBase64,
           thumbCaptureTimestamp,
@@ -169,7 +177,7 @@ const BiometricSoftware: React.FC = () => {
           candidateApplicationId || undefined
         );
       } else {
-        toastInfo('No Thumb Capture', 'No captured thumb data available yet.');
+        toastInfo('No Thumb Capture', 'No captured or matched thumb data is available yet.');
       }
 
       if ((faceResult && faceResult.successful) || (thumbResult && thumbResult.successful)) {
@@ -210,6 +218,7 @@ const BiometricSoftware: React.FC = () => {
     setCandidateSlot('');
     setCandidateApplicationId('');
     setThumbTemplate({ isoTemplateBase64: '', templateBase64: '' });
+    setOldThumbTemplateBase64('');
     setThumbCaptureTimestamp('');
     setDeviceApiResponse(null);
   };
@@ -268,8 +277,16 @@ const BiometricSoftware: React.FC = () => {
           liveImagePath={imagePaths.liveImagePath}
           biometricImagePath={imagePaths.biometricImagePath}
           capturedImage={capturedImage}
+          galleryTemplateBase64={oldThumbTemplateBase64}
+          onMatchStatusChange={setMatchStatus}
           handleCapture={handleCapture}
           handleWebcamToggle={handleWebcamToggle}
+        />
+
+        <ThumbTemplateStatus
+          isCandidateLoaded={isCandidateLoaded}
+          templateAvailable={templateAvailable}
+          matchStatus={matchStatus}
         />
       </div>
 
@@ -291,6 +308,9 @@ const BiometricSoftware: React.FC = () => {
           setImagePaths={setImagePaths}
           setCapturedImages={setCapturedImages}
           setCapturedImage={setCapturedImage}
+          setThumbTemplate={setThumbTemplate}
+          setOldThumbTemplateBase64={setOldThumbTemplateBase64}
+          setMatchStatus={setMatchStatus}
           capturedImages={capturedImages}
           onCandidateLoaded={setIsCandidateLoaded}
           onCandidateMetadataLoaded={({ slot, userExamApplicationId }) => {

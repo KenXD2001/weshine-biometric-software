@@ -11,7 +11,6 @@ const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
 const logger = require('./config/logger');
-const SyncScheduler = require('./services/syncScheduler');
 
 const app = express();
 const NODE_ENV = process.env.NODE_ENV || 'development';
@@ -85,8 +84,7 @@ if (allowAll) {
 app.use(express.json({ limit: '300mb' }));
 app.use(express.urlencoded({ extended: true, limit: '300mb' }));
 
-// Note: Authentication is now handled by local auth.js routes
-// which forward requests to cloud backend with proper response transformation
+// Note: Authentication is now handled locally by auth.js routes.
 
 // Serve uploaded files statically
 const path = require('path');
@@ -142,9 +140,6 @@ app.get('/health', (req, res) => {
 // API routes
 app.use('/api', require('./routes/api'));
 
-// Add sync routes
-app.use('/api/sync', require('./routes/sync'));
-
 // Root endpoint
 app.get('/', (req, res) => {
   logger.info('Root endpoint accessed', { ip: req.ip });
@@ -187,14 +182,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Initialize and start sync scheduler
-const syncScheduler = new SyncScheduler();
-
 // Start server
 app.listen(PORT, HOST, () => {
-  // Start sync scheduler after server is ready
-  syncScheduler.start();
-  
   logger.success(`Server started successfully`, {
     port: PORT,
     host: HOST,
@@ -210,7 +199,7 @@ app.listen(PORT, HOST, () => {
 ║  Environment: ${NODE_ENV.padEnd(47)} ║
 ║  Process ID: ${process.pid.toString().padEnd(49)} ║
 ║  Start Time: ${getISTDateTime().padEnd(43)} IST ║
-║  Sync Scheduler: RUNNING                                        ║
+║  Standalone local-only mode active                          ║
 ╚══════════════════════════════════════════════════════════════╝
   `);
 });
@@ -218,13 +207,11 @@ app.listen(PORT, HOST, () => {
 // Graceful shutdown
 process.on('SIGTERM', () => {
   logger.info('SIGTERM received, shutting down gracefully');
-  syncScheduler.stop();
   process.exit(0);
 });
 
 process.on('SIGINT', () => {
   logger.info('SIGINT received, shutting down gracefully');
-  syncScheduler.stop();
   process.exit(0);
 });
 

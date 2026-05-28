@@ -20,9 +20,9 @@ router.use((req, res, next) => {
   next();
 });
 
-// Route mounting - Auth routes proxy to cloud backend
+// Route mounting - Auth routes for local backend
 router.use('/user', authRoutes);
-router.use('/auth', authRoutes); // Also support /api/auth for cloud backend compatibility
+router.use('/auth', authRoutes); // Also support /api/auth for backward compatibility
 router.use('/candidate-details', candidatesModule.router);
 router.use('/candidates', candidatesModule.router); // Backward compatibility with old client path
 router.use('/candidate-counts', candidatesModule.router); // Add counts route

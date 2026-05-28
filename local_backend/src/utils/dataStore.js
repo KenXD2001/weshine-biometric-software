@@ -52,6 +52,9 @@ async function saveCandidates(candidates) {
       liveImagePath: c.liveImagePath,
       capturedImagePath: c.capturedImagePath,
       biometricImagePath: c.biometricImagePath,
+      // Previous biometric templates from old bio data
+      previousISOTemplateBase64: c.previousISOTemplateBase64 || null,
+      previousTemplateBase64: c.previousTemplateBase64 || null,
       // Essential Template Fields Only
       ISOTemplateBase64: c.ISOTemplateBase64 || null,
       TemplateBase64: c.TemplateBase64 || null,
@@ -172,6 +175,8 @@ async function saveCandidatesBiometric(candidates) {
       // Captured biometric data (base64)
       faceCaptureData: c.faceCaptureData || null,  // Captured face image (base64)
       thumbCaptureData: c.thumbCaptureData || null, // Fingerprint data (base64)
+      previousISOTemplateBase64: c.previousISOTemplateBase64 || null,
+      previousTemplateBase64: c.previousTemplateBase64 || null,
       // Essential Template Fields Only
       ISOTemplateBase64: c.ISOTemplateBase64 || null,
       TemplateBase64: c.TemplateBase64 || null,

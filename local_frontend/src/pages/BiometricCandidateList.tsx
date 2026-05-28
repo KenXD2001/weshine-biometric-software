@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Search, ChevronLeft, ChevronRight, Download, ChevronDown, X, User, Fingerprint, Camera, Send, CheckCircle, Clock, AlertCircle } from 'lucide-react';
-import { syncService } from '../services/api';
+import { Search, ChevronLeft, ChevronRight, Download, ChevronDown, X, User, Fingerprint, Camera, CheckCircle, Clock, AlertCircle, Send } from 'lucide-react';
 import { useToast } from '../hooks/useToast';
 import ToastContainer from '../components/Toast/ToastContainer';
 
@@ -37,6 +36,7 @@ interface CentreInfo {
   name?: string;
   city?: string;
   examSlot?: string;
+  centreCode?: string;
 }
 
 const BiometricCandidateList: React.FC = () => {
@@ -47,14 +47,11 @@ const BiometricCandidateList: React.FC = () => {
   const [exportDropdownOpen, setExportDropdownOpen] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(0); // in ms
-  const [lastRefreshAt, setLastRefreshAt] = useState<string>(new Date().toLocaleTimeString());
   const [refreshDropdownOpen, setRefreshDropdownOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [syncInProgress, setSyncInProgress] = useState(false);
-  const [syncStatusText, setSyncStatusText] = useState('');
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [centreInfo, setCentreInfo] = useState<CentreInfo>({});
-  const { toasts, removeToast, success: toastSuccess, error: toastError } = useToast();
+  const { toasts, removeToast } = useToast();
   const exportButtonRef = React.useRef<HTMLDivElement>(null);
   const refreshButtonRef = React.useRef<HTMLDivElement>(null);
 
@@ -91,7 +88,6 @@ const BiometricCandidateList: React.FC = () => {
         }));
         
         setCandidates(transformedCandidates);
-        setLastRefreshAt(new Date().toLocaleTimeString());
       }
     } catch (error) {
       console.error('Error fetching candidates:', error);
@@ -136,34 +132,6 @@ const BiometricCandidateList: React.FC = () => {
     setRefreshDropdownOpen(false);
   };
 
-  const handleSyncUp = useCallback(async () => {
-    if (syncInProgress) return;
-    setSyncInProgress(true);
-    setSyncStatusText('Syncing with cloud...');
-
-    try {
-      const response = await syncService.triggerImmediateSync();
-      const syncMessage = response.message || 'Sync completed';
-      setSyncStatusText(syncMessage);
-
-      if (response.successful) {
-        const syncData = response.data || {};
-        const differenceMessage = buildSyncDifferenceMessage(syncData);
-        toastSuccess('Sync differences', differenceMessage, 8000);
-        toastSuccess('Sync completed', syncMessage, 5000);
-        setTimeout(() => setSyncStatusText(''), 5000);
-        fetchCandidates();
-      } else {
-        toastError('Sync failed', response.message || 'Unable to sync pending items');
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      setSyncStatusText('Sync failed');
-      toastError('Sync failed', message);
-    } finally {
-      setSyncInProgress(false);
-    }
-  }, [fetchCandidates, syncInProgress, toastError, toastSuccess]);
 
   const getAutoRefreshLabel = (interval: number) => {
     if (interval <= 0) return 'OFF';
@@ -235,21 +203,6 @@ const BiometricCandidateList: React.FC = () => {
     return date.toLocaleString();
   };
 
-  const buildSyncDifferenceMessage = (data: { totalLocalCandidates?: number; totalCloudCandidates?: number; totalMissingInCloud?: number; totalSynced?: number; totalUpdated?: number; totalAlreadyLocal?: number; totalFailed?: number; }) => {
-    const localCount = data.totalLocalCandidates ?? 0;
-    const cloudCount = data.totalCloudCandidates ?? 0;
-    const diff = Math.abs(localCount - cloudCount);
-    if (localCount === cloudCount) {
-      return `Local and cloud counts are equal (${localCount}). Difference is 0. Bi-directional sync completed.`;
-    }
-
-    const direction = localCount > cloudCount ? 'Local → Cloud' : 'Cloud → Local';
-    const countLabel = localCount > cloudCount
-      ? `Local has ${localCount}, Cloud has ${cloudCount}`
-      : `Cloud has ${cloudCount}, Local has ${localCount}`;
-
-    return `${countLabel}. Difference: ${diff}. Sync direction: ${direction}.`;
-  };
 
   const getStatusBadge = (status: Candidate['biometricStatus']) => {
     const normalizedStatus = String(status || '').trim().toLowerCase();
@@ -284,7 +237,7 @@ const BiometricCandidateList: React.FC = () => {
   };
 
   const getPdfExportFileName = () => {
-    const city = filteredCandidates[0]?.city || centreInfo.city || filteredCandidates[0]?.centreName || 'Unknown_City';
+    const centreCode = filteredCandidates[0]?.centreCode || centreInfo.centreCode || 'Unknown_CentreCode';
     const slotLabel = filteredCandidates[0]?.examSlot || filteredCandidates[0]?.slot || centreInfo.examSlot || 'Unknown_Slot';
     const clean = (value: string) =>
       value
@@ -292,9 +245,9 @@ const BiometricCandidateList: React.FC = () => {
         .replace(/\s+/g, '_')
         .replace(/[^a-zA-Z0-9_-]/g, '');
 
-    const cityPart = clean(city || 'Unknown_City');
+    const centreCodePart = clean(centreCode || 'Unknown_CentreCode');
     const slotPart = clean(slotLabel || 'Unknown_Slot');
-    return `${cityPart}_${slotPart}_PDF_Export.pdf`;
+    return `${centreCodePart}_${slotPart}_PDF_Export.pdf`;
   };
 
   const handleExportCSV = async (format: 'csv' | 'pdf' | 'json') => {
@@ -446,24 +399,11 @@ const BiometricCandidateList: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={handleSyncUp}
-            disabled={syncInProgress}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Send className="w-3.5 h-3.5" />
-            {syncInProgress ? 'Syncing...' : 'Sync Up'}
-          </button>
-          <button
-            type="button"
             onClick={handleManualRefresh}
             className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 transition-colors"
           >
             Refresh
           </button>
-          <span className="text-xs text-slate-500">Last: {lastRefreshAt}</span>
-          {syncStatusText ? (
-            <span className="text-xs text-blue-600">{syncStatusText}</span>
-          ) : null}
         </div>
 
         <div className="relative" ref={exportButtonRef}>

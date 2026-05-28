@@ -515,8 +515,8 @@ const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
           <span>{{centerName}}</span>
         </div>
         <div class="meta-card">
-          <strong>City</strong>
-          <span>{{cityName}}</span>
+          <strong>Centre Code</strong>
+          <span>{{centreCode}}</span>
         </div>
         <div class="meta-card">
           <strong>Exam slot</strong>
@@ -947,7 +947,7 @@ const createBiometricPdf = async (candidateList, context = {}) => {
   }
 
   const centerName = candidateList[0]?.centreName || candidateList[0]?.centre || context.centreName || 'N/A';
-  const cityName = candidateList[0]?.cityName || candidateList[0]?.city || context.cityName || 'N/A';
+  const centreCode = candidateList[0]?.centreCode || context.centreCode || candidateList[0]?.centreName || 'N/A';
   const examSlot = candidateList[0]?.examSlot || candidateList[0]?.slot || context.examSlot || 'N/A';
   const candidateCount = candidateList.length;
 
@@ -955,7 +955,7 @@ const createBiometricPdf = async (candidateList, context = {}) => {
     rows: rowsHtml,
     generatedAt: getISTDateTime(),
     centerName,
-    cityName,
+    centreCode,
     examSlot,
     candidateCount
   });

@@ -1,165 +1,111 @@
 const express = require('express');
-const axios = require('axios');
+const jwt = require('jsonwebtoken');
 const router = express.Router();
 const logger = require('../config/logger');
 
-const CLOUD_BACKEND_URL = process.env.CLOUD_BACKEND_URL;
+const {
+  LOCAL_USER_EMAIL,
+  LOCAL_USER_PASSWORD,
+  LOCAL_USER_ID = 'local-admin',
+  LOCAL_USER_NAME = 'Local Admin',
+  LOCAL_USER_ROLE = 'admin',
+  JWT_SECRET = 'your-super-secret-jwt-key-here',
+  JWT_EXPIRES_IN = '24h'
+} = process.env;
+
+const getLocalUser = () => ({
+  id: LOCAL_USER_ID,
+  name: LOCAL_USER_NAME,
+  email: LOCAL_USER_EMAIL,
+  role: LOCAL_USER_ROLE,
+  centreCode: '',
+  centreName: ''
+});
+
+const createToken = (user) => {
+  return jwt.sign({ id: user.id, email: user.email, role: user.role }, JWT_SECRET, {
+    expiresIn: JWT_EXPIRES_IN
+  });
+};
+
+const verifyToken = (token) => {
+  return jwt.verify(token, JWT_SECRET);
+};
 
 /**
  * Login endpoint
- * Flow: Frontend (3030) -> Local Backend (8080) -> Cloud Backend (8040)
- * 
- * Frontend sends: { email, password }
- * Cloud backend returns: { success, token, user }
- * Local backend transforms to: { successful, api_token, user }
+ * Local authentication using credentials stored in backend .env
  */
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    logger.info('🔐 Login request received - forwarding to cloud backend', { 
-      email, 
+    logger.info('🔐 Local login request received', {
+      email,
       passwordProvided: !!password,
       passwordLength: password ? password.length : 0,
-      cloudBackendUrl: CLOUD_BACKEND_URL,
       ip: req.ip,
       userAgent: req.get('User-Agent'),
       timestamp: new Date().toISOString()
     });
 
     if (!email || !password) {
-      logger.warn('❌ Login failed - missing credentials', { 
-        email, 
+      logger.warn('❌ Login failed - missing credentials', {
+        email,
         passwordProvided: !!password,
         ip: req.ip,
         timestamp: new Date().toISOString()
       });
+
       return res.status(400).json({
         successful: false,
         message: 'Email and password are required'
       });
     }
 
-    // Forward login request to cloud backend
-    try {
-      logger.info('📡 Forwarding login request to cloud backend', {
-        url: `${CLOUD_BACKEND_URL}/api/auth/login`,
-        timeout: 10000,
-        timestamp: new Date().toISOString()
-      });
-
-      const cloudResponse = await axios.post(
-        `${CLOUD_BACKEND_URL}/api/auth/login`,
-        { 
-          email, 
-          password
-        },
-        {
-          timeout: 10000
-        }
-      );
-
-      logger.success('✅ Login successful from cloud backend', { 
-        email, 
-        ip: req.ip,
-        responseStatus: cloudResponse.status,
-        responseTime: new Date().toISOString(),
-        hasToken: !!(cloudResponse.data?.data?.token),
-        userData: cloudResponse.data?.data?.user ? {
-          id: cloudResponse.data.data.user.id,
-          centreCode: cloudResponse.data.data.user.centreCode,
-          centreName: cloudResponse.data.data.user.centreName,
-          role: cloudResponse.data.data.user.role
-        } : null
-      });
-
-
-      // Extract centreCode and centreName if present
-      const user = cloudResponse.data.data.user || {};
-      const centreCode = user.centreCode || null;
-      const centreName = user.centreName || null;
-      const city = user.city || user.cityName || null;
-
-      // Persist centre info received from cloud during login (do not overwrite centre metadata from uploads)
-      if (centreCode) {
-        try {
-          const candidatesModule = require('./candidates');
-          const existingCentreInfo = candidatesModule.getCentreInfo() || {};
-
-          candidatesModule.setCentreInfo({
-            code: centreCode,
-            name: centreName || existingCentreInfo.name || '',
-            city: city || existingCentreInfo.city || '',
-            examSlot: existingCentreInfo.examSlot || ''
-          });
-
-          logger.info('Stored centre info from cloud login', { centreCode, centreName, city });
-        } catch (err) {
-          logger.warn('Failed to persist centre info from login', { error: err.message });
-        }
-      }
-
-      // Transform cloud backend response to match frontend expectations
-      const transformedResponse = {
-        successful: cloudResponse.data.success === true,
-        message: cloudResponse.data.message,
-        data: {
-          api_token: cloudResponse.data.data.token,
-          user,
-          centreCode,
-          centreName
-        }
-      };
-
-      logger.info('📤 Sending transformed response to frontend', {
-        success: transformedResponse.successful,
-        hasApiToken: !!transformedResponse.data.api_token,
-        hasUser: !!transformedResponse.data.user,
-        centreCode: transformedResponse.data.centreCode,
-        centreName: transformedResponse.data.centreName,
-        responseSize: JSON.stringify(transformedResponse).length,
-        timestamp: new Date().toISOString()
-      });
-
-      res.status(200).json(transformedResponse);
-
-    } catch (cloudError) {
-      const errorMessage = cloudError.response?.data?.message || cloudError.message;
-      const statusCode = cloudError.response?.status || 500;
-
-      logger.error('❌ Cloud backend login failed', { 
+    if (email !== LOCAL_USER_EMAIL || password !== LOCAL_USER_PASSWORD) {
+      logger.warn('❌ Login failed - invalid credentials', {
         email,
-        error: errorMessage,
-        statusCode,
-        cloudBackendUrl: CLOUD_BACKEND_URL,
-        axiosCode: cloudError.code,
-        axiosStatus: cloudError.response?.status,
-        axiosStatusText: cloudError.response?.statusText,
         ip: req.ip,
         timestamp: new Date().toISOString()
       });
 
-      const errorResponse = {
+      return res.status(401).json({
         successful: false,
-        message: errorMessage || 'Cloud authentication service failed'
-      };
-
-      logger.warn('📤 Sending error response to frontend', {
-        success: errorResponse.successful,
-        message: errorResponse.message,
-        statusCode,
-        timestamp: new Date().toISOString()
+        message: 'Invalid login credentials'
       });
-
-      return res.status(statusCode).json(errorResponse);
     }
 
+    const user = getLocalUser();
+    const token = createToken(user);
+
+    const responseBody = {
+      successful: true,
+      message: 'Login successful',
+      data: {
+        api_token: token,
+        user,
+        centreCode: user.centreCode,
+        centreName: user.centreName
+      }
+    };
+
+    logger.success('✅ Local login successful', {
+      email,
+      ip: req.ip,
+      timestamp: new Date().toISOString(),
+      hasToken: true,
+      user
+    });
+
+    return res.status(200).json(responseBody);
   } catch (error) {
     logger.error('Local backend login error', {
       error: error.message,
       stack: error.stack,
       ip: req.ip
     });
+
     res.status(500).json({
       successful: false,
       message: 'Internal server error'
@@ -169,12 +115,12 @@ router.post('/login', async (req, res) => {
 
 /**
  * Verify token endpoint
- * Forwards to cloud backend for token verification
+ * Local JWT verification only
  */
 router.post('/verify', async (req, res) => {
   try {
     const token = req.headers.authorization?.replace('Bearer ', '');
-    
+
     if (!token) {
       logger.warn('Token verification failed - no token provided', { ip: req.ip });
       return res.status(401).json({
@@ -183,74 +129,50 @@ router.post('/verify', async (req, res) => {
       });
     }
 
-    logger.info('Verifying token with cloud backend', { ip: req.ip });
+    let decoded;
+    try {
+      decoded = verifyToken(token);
+    } catch (err) {
+      logger.warn('Token verification failed - invalid token', { ip: req.ip, error: err.message });
+      return res.status(401).json({
+        successful: false,
+        message: 'Invalid or expired token'
+      });
+    }
 
-    const cloudResponse = await axios.get(
-      `${CLOUD_BACKEND_URL}/api/auth/verify`,
-      {
-        headers: { Authorization: `Bearer ${token}` },
-        timeout: 10000
-      }
-    );
+    const user = getLocalUser();
 
     res.json({
       successful: true,
       message: 'Token verified',
-      data: cloudResponse.data.data
+      data: {
+        user,
+        tokenData: decoded
+      }
     });
-
   } catch (error) {
-    const statusCode = error.response?.status || 500;
-    const message = error.response?.data?.message || 'Token verification failed';
-
-    logger.warn('Token verification failed', { 
-      error: message,
-      statusCode,
-      ip: req.ip 
+    logger.error('Token verification error', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip
     });
-
-    res.status(statusCode).json({
+    res.status(500).json({
       successful: false,
-      message
+      message: 'Token verification failed'
     });
   }
 });
 
 /**
  * Logout endpoint
- * Forwards to cloud backend
  */
 router.post('/logout', async (req, res) => {
   try {
-    logger.info('User logout request', { ip: req.ip });
-
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    
-    // If token exists, attempt to notify cloud backend
-    if (token) {
-      try {
-        await axios.post(
-          `${CLOUD_BACKEND_URL}/api/auth/logout`,
-          {},
-          {
-            headers: { Authorization: `Bearer ${token}` },
-            timeout: 5000
-          }
-        );
-      } catch (cloudError) {
-        // Log but don't fail if cloud backend logout fails
-        logger.warn('Cloud backend logout notification failed', { 
-          error: cloudError.message,
-          ip: req.ip 
-        });
-      }
-    }
-
+    logger.info('Local user logout request', { ip: req.ip });
     res.json({
       successful: true,
       message: 'Logout successful'
     });
-
   } catch (error) {
     logger.error('Logout error', { error: error.message, ip: req.ip });
     res.status(500).json({

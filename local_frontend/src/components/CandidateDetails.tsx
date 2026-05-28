@@ -16,6 +16,9 @@ interface CandidateDetailsProps {
   setImagePaths: (paths: { uploadedImagePath: string; liveImagePath: string; biometricImagePath: string; }) => void;
   setCapturedImages: (images: { signature: boolean; uploaded: boolean; camera: boolean; live: boolean; thumb: boolean; }) => void;
   setCapturedImage: (image: string) => void;
+  setThumbTemplate: (template: { isoTemplateBase64: string; templateBase64: string }) => void;
+  setOldThumbTemplateBase64: (template: string) => void;
+  setMatchStatus: (status: 'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown') => void;
   onCandidateLoaded: (loaded: boolean) => void;
   onSubmit: (applicationNumber: string) => void;
   isSubmitting: boolean;
@@ -44,6 +47,9 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   setImagePaths,
   setCapturedImages,
   setCapturedImage,
+  setThumbTemplate,
+  setOldThumbTemplateBase64,
+  setMatchStatus,
   capturedImages,
   isSubmitting,
 }) => {
@@ -121,12 +127,20 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
           uploaded: !!candidate.uploadedImagePath, // Show uploaded check if uploadedImagePath exists
           camera: hasLiveCapture,
           live: hasLiveCapture,
-          thumb: !!candidate.biometricImagePath, // Show thumb check if biometricImagePath exists
+          thumb: !!candidate.biometricImagePath || !!candidate.previousISOTemplateBase64 || !!candidate.previousTemplateBase64,
         });
 
         if (candidate.capturedImagePath) {
           setCapturedImage(candidate.capturedImagePath);
         }
+
+        setThumbTemplate({
+          isoTemplateBase64: String(candidate.ISOTemplateBase64 || ''),
+          templateBase64: String(candidate.TemplateBase64 || '')
+        });
+        const oldTemplateValue = String(candidate.previousTemplateBase64 || candidate.previousISOTemplateBase64 || '');
+        setOldThumbTemplateBase64(oldTemplateValue);
+        setMatchStatus(oldTemplateValue ? 'unknown' : 'not-applicable');
 
         onCandidateLoaded(true);
         onCandidateMetadataLoaded({

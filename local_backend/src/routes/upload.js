@@ -98,21 +98,29 @@ function parseCSV(csvContent) {
     const candidate = {};
     
     headers.forEach((header, index) => {
-      candidate[header] = values[index] || '';
-    });
-    
-    logger.info(`CSV Row ${i} parsed`, { 
-      candidate,
-      hasAppNumber: !!(candidate['Application Number'] || candidate['applicationNumber']),
-      hasFullName: !!(candidate['Full Name'] || candidate['fullName'])
+      const value = values[index] || '';
+      if (!header) {
+        const normalizedValue = String(value || '').trim();
+        if (/\b(slot|batch|a|b)\b/i.test(normalizedValue)) {
+          candidate.examSlot = normalizedValue;
+        }
+      } else {
+        candidate[header] = value;
+      }
     });
     
     // Normalize common CSV fields to the internal expected keys
     if (candidate['Email']) {
       candidate.email = candidate['Email'];
     }
+    if (candidate['email']) {
+      candidate.email = candidate['email'];
+    }
     if (candidate['Email ID']) {
       candidate.emailId = candidate['Email ID'];
+    }
+    if (candidate['emailId']) {
+      candidate.emailId = candidate['emailId'];
     }
     if (candidate['applicationNumber']) {
       candidate.applicationNumber = candidate['applicationNumber'];
@@ -120,16 +128,47 @@ function parseCSV(csvContent) {
     if (candidate['Application Number']) {
       candidate.applicationNumber = candidate['Application Number'];
     }
+    if (candidate['AppNumber']) {
+      candidate.applicationNumber = candidate['AppNumber'];
+    }
     if (candidate['Full Name']) {
       candidate.fullName = candidate['Full Name'];
+    }
+    if (candidate['candidateFullName']) {
+      candidate.fullName = candidate['candidateFullName'];
     }
     if (candidate['candidateName']) {
       candidate.candidateName = candidate['candidateName'];
     }
+    if (candidate['primaryMobile']) {
+      candidate.primaryMobile = candidate['primaryMobile'];
+    }
+    if (candidate['mobile']) {
+      candidate.primaryMobile = candidate['mobile'];
+    }
+    if (candidate['phone']) {
+      candidate.primaryMobile = candidate['phone'];
+    }
+    if (candidate['allocatedCentreCode']) {
+      candidate.centreCode = candidate['allocatedCentreCode'];
+    }
+    if (candidate['Centre Code']) {
+      candidate.centreCode = candidate['Centre Code'];
+    }
+    if (candidate['gender']) {
+      candidate.gender = candidate['gender'];
+    }
 
-    // Check if candidate has required fields - support both formats
-    const appNumber = candidate.applicationNumber || candidate.AppNumber || candidate.app_number;
-    const fullName = candidate.fullName || candidate.FullName || candidate.full_name;
+    const appNumber = candidate.applicationNumber || candidate.AppNumber || candidate.application_number;
+    const fullName = candidate.candidateName || candidate.fullName || candidate.FullName || candidate.full_name;
+    const hasCandidate = !!(appNumber || fullName);
+
+    logger.info(`CSV Row ${i} parsed`, { 
+      candidate,
+      hasAppNumber: !!appNumber,
+      hasFullName: !!fullName,
+      hasCandidate
+    });
 
     if (appNumber || fullName) {
       candidates.push(candidate);
@@ -749,11 +788,6 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
           faceCaptureData: null,
           thumbCaptureData: null,
           matchPercentage: null,
-          // Cloud sync tracking
-          syncedToCloud: false,
-          syncedAt: null,
-          syncError: null,
-          cloudId: null,
           // Image file paths (data folder API path)
           uploadedImagePath: uploadedImagePath || '',
           liveImagePath: liveImagePath || '',
@@ -925,6 +959,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
 
     let zipMetadata = null;
     let zipMediaManifest = null;
+    let zipOldBioData = null;
 
     function searchForMetadataFile(dirPath) {
       const items = fs.readdirSync(dirPath);
@@ -974,13 +1009,48 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       }
     }
 
+    function searchForOldBioDataFile(dirPath) {
+      const items = fs.readdirSync(dirPath);
+      for (const item of items) {
+        const itemPath = path.join(dirPath, item);
+        const stat = fs.statSync(itemPath);
+
+        if (stat.isFile() && item.toLowerCase() === 'old_bio_data.json') {
+          try {
+            const oldBioRaw = fs.readFileSync(itemPath, 'utf8');
+            zipOldBioData = JSON.parse(oldBioRaw);
+            logger.info('Found old_bio_data.json in ZIP', { path: itemPath });
+          } catch (oldBioError) {
+            logger.warn('Failed to parse old_bio_data.json from ZIP', { error: oldBioError.message, path: itemPath });
+          }
+          return;
+        }
+
+        if (stat.isDirectory() && !item.startsWith('.')) {
+          searchForOldBioDataFile(itemPath);
+          if (zipOldBioData) return;
+        }
+      }
+    }
+
     searchForMetadataFile(extractionDir);
     searchForMediaManifestFile(extractionDir);
+    searchForOldBioDataFile(extractionDir);
 
     const mediaManifestMap = new Map();
     if (Array.isArray(zipMediaManifest)) {
       zipMediaManifest.forEach(({ key, files }) => {
         mediaManifestMap.set(String(key).trim(), Array.isArray(files) ? files : []);
+      });
+    }
+
+    const oldBioMap = new Map();
+    if (Array.isArray(zipOldBioData)) {
+      zipOldBioData.forEach((entry) => {
+        const key = String(entry.applicationNumber || entry.oldApplicationNumber || entry.applicationNo || entry.candidateId || '').trim();
+        if (key) {
+          oldBioMap.set(key, entry);
+        }
       });
     }
 
@@ -1004,7 +1074,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
             fileType = 'CSV';
             logger.info('Found CSV file in ZIP', { fileName: item, path: itemPath });
             return;
-          } else if (item.toLowerCase().endsWith('.json') && item.toLowerCase() !== 'metadata.json' && item.toLowerCase() !== 'media_manifest.json') {
+          } else if (item.toLowerCase().endsWith('.json') && item.toLowerCase() !== 'metadata.json' && item.toLowerCase() !== 'media_manifest.json' && item.toLowerCase() !== 'old_bio_data.json') {
             candidateFile = itemPath;
             fileType = 'JSON';
             logger.info('Found JSON file in ZIP', { fileName: item, path: itemPath });
@@ -1267,6 +1337,12 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
                              candidate['full_name'];
 
         if (!candidateId || !candidateName) {
+          logger.warn('Skipping candidate due missing id or name', {
+            index: index + 1,
+            candidate,
+            candidateId,
+            candidateName
+          });
           throw new Error('Missing candidateId/applicationNumber or candidateName/fullName');
         }
 
@@ -1312,6 +1388,11 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         const manifestPhotoPath = manifestFiles.find((file) => file.toLowerCase().includes('photo')) || '';
         const manifestSignaturePath = manifestFiles.find((file) => file.toLowerCase().includes('signatur')) || '';
 
+        const oldBioKey = String(candidate.applicationNumber || candidate.candidateId || candidate['Application Number'] || candidate.hallTicket || '').trim();
+        const oldBioEntry = oldBioMap.get(oldBioKey) || oldBioMap.get(candidateId) || oldBioMap.get(hallTicket);
+        const previousISOTemplateBase64 = oldBioEntry?.ISOTemplateBase64 || oldBioEntry?.isotemplatebase64 || oldBioEntry?.isoTemplateBase64 || null;
+        const previousTemplateBase64 = oldBioEntry?.TemplateBase64 || oldBioEntry?.templatebase64 || oldBioEntry?.TemplateBase64 || null;
+
         if (!photoFilePath && manifestPhotoPath) {
           photoFilePath = manifestPhotoPath.replace(/^\/+/, '');
         }
@@ -1345,6 +1426,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           applicationNumber: candidate.userExamApplicationId || candidate['Application Number'] || candidateId,
           candidateName: candidateName,
           emailId: candidate.emailId || candidate.email || `${candidateName.toLowerCase().replace(/\s+/g, '')}@example.com`,
+          phone: candidate.primaryMobile || candidate.mobile || candidate.phone || '',
           gender: (candidate.gender || candidate.Gender || 'other').toLowerCase(),
           image: '',  // For base64 image data (from JSON uploads)
           liveImage: '',  // For base64 signature data (from JSON uploads)
@@ -1355,11 +1437,8 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           biometricStatus: 'Pending',
           faceCaptureData: null,
           thumbCaptureData: null,
-          // Cloud sync tracking
-          syncedToCloud: false,
-          syncedAt: null,
-          syncError: null,
-          cloudId: null,
+          previousISOTemplateBase64,
+          previousTemplateBase64,
           // Image paths (automatically detected from ZIP folders)
           uploadedImagePath: uploadedImagePath,
           liveImagePath: liveImagePath,
@@ -1376,6 +1455,15 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           thumbCaptureTimestamp: null,
           submitTimestamp: null
         };
+
+        logger.info('Candidate normalized and ready for persistence', {
+          index: index + 1,
+          candidateId,
+          candidateName,
+          hallTicket,
+          hasPreviousISOTemplate: !!previousISOTemplateBase64,
+          hasPreviousTemplate: !!previousTemplateBase64
+        });
 
         candidatesModule.addCandidate(candidateObj);
         successCount++;

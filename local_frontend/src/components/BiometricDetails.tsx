@@ -3,6 +3,7 @@ import { Check, Play, Square, RefreshCw, AlertCircle, ImageUp, ImageDown, Signat
 import Button from './ui/Button';
 import WebcamComponent from './Webcam';
 import { biometricService } from "../services/api";
+import { useToast } from '../hooks/useToast';
 
 type BiometricDeviceApiResponse = {
   ISOTemplateBase64?: string;
@@ -29,6 +30,8 @@ interface BiometricDetailsProps {
   liveImagePath: string; // This is the candidate photo (photo.jpg)
   biometricImagePath: string;
   capturedImage: string; // For captured webcam images
+  galleryTemplateBase64?: string;
+  onMatchStatusChange?: (status: 'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown') => void;
   handleCapture: (
     type: "signature" | "uploaded" | "camera" | "live" | "thumb",
     imageData?: string,
@@ -47,6 +50,8 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
   biometricImagePath,
   capturedImage,
   isCandidateLoaded,
+  galleryTemplateBase64,
+  onMatchStatusChange,
   handleCapture: handleCaptureProp,
   handleWebcamToggle: handleWebcamToggleProp,
 }) => {
@@ -56,6 +61,7 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
     message: string;
   } | null>(null);
   const webcamCaptureRef = useRef<(() => void) | null>(null);
+  const { success: toastSuccess, error: toastError, info: toastInfo } = useToast();
 
   const resolveApiAsset = (path: string) => {
     if (!path) return '';
@@ -120,14 +126,16 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
 
   const handleThumbCapture = useCallback(async () => {
     try {
-      const result = await biometricService.captureThumb();
-      if (!result.success) {
-        console.warn('[BiometricDetails] Thumb capture failed', result.message);
+      const captureResult = await biometricService.captureThumb();
+      if (!captureResult.success) {
+        toastError('Thumb Capture Failed', captureResult.message);
+        console.warn('[BiometricDetails] Thumb capture failed', captureResult.message);
         return;
       }
 
-      const imageData = result.imageData;
+      const imageData = captureResult.imageData;
       if (!imageData) {
+        toastError('Thumb Capture Failed', 'Thumb capture returned no image data. Please try again.');
         console.warn('[BiometricDetails] Thumb capture returned no image data');
         return;
       }
@@ -136,16 +144,37 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
         'thumb',
         imageData,
         {
-          isoTemplateBase64: result.deviceInfo?.IsoTemplate as string,
-          templateBase64: result.deviceInfo?.AnsiTemplate as string
+          isoTemplateBase64: captureResult.deviceInfo?.IsoTemplate as string,
+          templateBase64: captureResult.deviceInfo?.AnsiTemplate as string
         },
         new Date().toISOString(),
-        result.deviceInfo as BiometricDeviceApiResponse
+        captureResult.deviceInfo as BiometricDeviceApiResponse
       );
+
+      if (galleryTemplateBase64) {
+        onMatchStatusChange?.('pending');
+        const matchResult = await biometricService.matchThumb(galleryTemplateBase64);
+        if (!matchResult.success) {
+          toastError('Thumb Match Failed', matchResult.message);
+          console.warn('[BiometricDetails] Thumb match failed', matchResult.message);
+          onMatchStatusChange?.('failed');
+        } else if (matchResult.matched) {
+          toastSuccess('Thumb Matched', 'Old thumb template matched successfully.');
+          onMatchStatusChange?.('success');
+        } else {
+          toastInfo('Thumb Not Matched', 'The scanned thumb did not match the previous template, but candidate submission can still proceed.');
+          onMatchStatusChange?.('failed');
+        }
+      } else {
+        toastSuccess('Thumb Captured', 'Thumb template captured successfully.');
+        onMatchStatusChange?.('not-applicable');
+      }
     } catch (error) {
       console.error('Thumb capture error:', error);
+      const msg = error instanceof Error ? error.message : 'Unknown error';
+      toastError('Thumb Error', msg);
     }
-  }, [handleCaptureDebug]);
+  }, [handleCaptureDebug, galleryTemplateBase64, toastError, toastInfo, toastSuccess, onMatchStatusChange]);
 
   const handleTestDevice = async () => {
     setIsTestingDevice(true);
@@ -154,10 +183,18 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
     try {
       const result = await biometricService.testBiometricDevice();
       setDeviceStatus(result);
-    } catch {
+
+      if (result.connected) {
+        toastSuccess('Device Connected', result.message);
+      } else {
+        toastError('Device Not Connected', result.message);
+      }
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Device test failed. Please try again.';
+      toastError('Device Test Error', msg);
       setDeviceStatus({
         connected: false,
-        message: 'Device test failed. Please try again.'
+        message: msg
       });
     } finally {
       setIsTestingDevice(false);
@@ -366,12 +403,13 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
           </div>
           <Button
             onClick={() => {
-              console.log('[BiometricDetails] Capture Thumb click', {
+              console.log('[BiometricDetails] Capture/Match Thumb click', {
                 isCandidateLoaded,
                 isWebcamActive,
                 deviceStatus,
                 capturedImages,
                 biometricImagePath,
+                hasOldTemplate: Boolean(galleryTemplateBase64)
               });
               handleThumbCapture();
             }}
@@ -382,7 +420,7 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
             disabled={!(deviceStatus?.connected && capturedImages.live && isCandidateLoaded)}
           >
             <Fingerprint className="h-3.5 w-3.5" />
-            Capture Thumb
+            {galleryTemplateBase64 ? 'Capture & Match Thumb' : 'Capture Thumb'}
           </Button>
         </div>
       </div>

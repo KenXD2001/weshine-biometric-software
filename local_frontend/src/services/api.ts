@@ -12,40 +12,6 @@ type BiometricDeviceApiResponse = {
   [key: string]: unknown;
 };
 
-type SyncStatusData = {
-  isRunning: boolean;
-  lastSync?: string;
-  totalCandidates: number;
-  syncedCandidates: number;
-  pendingCandidates: number;
-  failedCandidates: number;
-  [key: string]: unknown;
-};
-
-type SyncResultData = {
-  totalLocalCandidates: number;
-  totalCloudCandidates: number;
-  totalSynced: number;
-  totalUpdated: number;
-  totalAlreadyLocal: number;
-  totalMissingInCloud: number;
-  totalFailed: number;
-  totalDownloadedImages: number;
-  totalDownloadSizeKB: string;
-  processingTime: string;
-  cloudProcessingTime: string;
-  details: Array<{
-    hallTicket: string;
-    hasBiometricInCloud: boolean;
-    synced: boolean;
-    updated: boolean;
-    alreadyLocal: boolean;
-    failed: boolean;
-    notes: string[];
-  }>;
-  [key: string]: unknown;
-};
-
 type CentreInfoData = {
   centreCode: string;
   centreName: string;
@@ -65,8 +31,6 @@ export const API_ENDPOINTS = {
   LOGIN: '/auth/login',
   UPLOAD: '/upload/file',
   CANDIDATE_COUNTS: '/candidate-details/counts',
-  SYNC_STATUS: '/sync/status',
-  SYNC_TRIGGER: '/sync/trigger-immediate',
   // Add other endpoints as needed
 } as const;
 
@@ -76,6 +40,7 @@ export const createApiUrl = (endpoint: string) => {
 
 const BIOMETRIC_DEVICE_CAPTURE_URL = import.meta.env.VITE_BIOMETRIC_DEVICE_CAPTURE_URL || 'http://localhost:8004/mfs100/capture';
 const BIOMETRIC_DEVICE_TEST_URL = import.meta.env.VITE_BIOMETRIC_DEVICE_TEST_URL || 'http://localhost:8004/mfs100/info';
+const BIOMETRIC_DEVICE_MATCH_URL = import.meta.env.VITE_BIOMETRIC_DEVICE_MATCH_URL || 'http://localhost:8004/mfs100/match';
 
 const normalizeBase64Image = (rawData?: string | null) => {
   if (!rawData) return null;
@@ -209,31 +174,6 @@ export const candidateService = {
   },
 };
 
-export const syncService = {
-  getSyncStatus: async (): Promise<{ successful: boolean; data: SyncStatusData; message?: string }> => {
-    const response = await fetch(createApiUrl(API_ENDPOINTS.SYNC_STATUS));
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || 'Failed to fetch sync status');
-    }
-    return response.json();
-  },
-
-  triggerImmediateSync: async (): Promise<{ successful: boolean; data: SyncResultData; message?: string }> => {
-    const response = await fetch(createApiUrl(API_ENDPOINTS.SYNC_TRIGGER), {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      }
-    });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || 'Failed to trigger sync');
-    }
-    return response.json();
-  }
-};
-
 // Biometric device service functions
 export const biometricService = {
   testBiometricDevice: async (): Promise<{ connected: boolean; message: string; deviceInfo?: Record<string, unknown> }> => {
@@ -248,25 +188,24 @@ export const biometricService = {
         },
       });
 
-      if (response.ok) {
-        const deviceInfo = await response.json();
+      const deviceInfo = await response.json();
+      const errorCodeRaw = deviceInfo?.ErrorCode ?? deviceInfo?.errorCode ?? null;
+      const errorDescription = String(deviceInfo?.ErrorDescription || deviceInfo?.errorDescription || deviceInfo?.Message || deviceInfo?.message || '').trim();
+      const normalizedErrorCode = typeof errorCodeRaw === 'string' ? errorCodeRaw.trim() : errorCodeRaw;
+      const connected = normalizedErrorCode === '0' || normalizedErrorCode === 0;
+
+      if (connected) {
         return {
           connected: true,
-          message: 'Mantra MFS100 device is connected and working properly',
+          message: errorDescription || 'Mantra MFS100 device is connected and working properly',
           deviceInfo
-        };
-      }
-
-      if (response.status === 404) {
-        return {
-          connected: false,
-          message: 'MFS100 service not found. Please ensure the service is running on port 8004.'
         };
       }
 
       return {
         connected: false,
-        message: 'Device is not responding correctly'
+        message: errorDescription || 'MFS100 not found or not connected',
+        deviceInfo
       };
     } catch (error: unknown) {
       console.error('Biometric device test error:', error);
@@ -289,6 +228,82 @@ export const biometricService = {
       return {
         connected: false,
         message: `Device test failed: ${errorMessage}`
+      };
+    }
+  },
+
+  matchThumb: async (galleryTemplate: string): Promise<{ success: boolean; matched?: boolean; message: string; imageData?: string | null; templateData?: { isoTemplateBase64?: string; templateBase64?: string }; deviceInfo?: Record<string, unknown> }> => {
+    try {
+      const matchPayload = {
+        Quality: 60,
+        TimeOut: 10,
+        GalleryTemplate: galleryTemplate,
+        BioType: 'FMR'
+      };
+
+      const response = await fetch(BIOMETRIC_DEVICE_MATCH_URL, {
+        method: 'POST',
+        mode: 'cors',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(matchPayload)
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Device match failed with status:', response.status, errorText);
+
+        if (response.status === 404) {
+          return {
+            success: false,
+            message: 'MFS100 match service not found. Please ensure the service is running on localhost:8004.'
+          };
+        }
+
+        return {
+          success: false,
+          message: `Match request failed: ${response.status} ${errorText}`
+        };
+      }
+
+      const result = await response.json();
+      const parsed = parseBiometricDeviceResponse(result as Record<string, unknown>);
+      const errorCodeRaw = result?.ErrorCode ?? result?.errorCode ?? null;
+      const normalizedErrorCode = typeof errorCodeRaw === 'string' ? errorCodeRaw.trim() : errorCodeRaw;
+      const matched = result?.Status === true || String(result?.Status).toLowerCase() === 'true';
+      const isError = normalizedErrorCode !== '0' && normalizedErrorCode !== 0;
+
+      if (isError) {
+        return {
+          success: false,
+          message: String(result?.ErrorDescription || result?.errorDescription || 'Thumb match failed'),
+          deviceInfo: result
+        };
+      }
+
+      return {
+        success: true,
+        matched,
+        message: matched ? 'Thumb matched successfully' : 'Thumb did not match the previous template',
+        imageData: parsed.imageData,
+        templateData: parsed.templateData,
+        deviceInfo: result
+      };
+    } catch (error: unknown) {
+      console.error('Thumb match error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      if (errorMessage.includes('ECONNREFUSED') || errorMessage.includes('connection refused')) {
+        return {
+          success: false,
+          message: 'Cannot connect to Mantra MFS100 match service. Please ensure: 1) Device is connected, 2) MFS100 service is running on localhost:8004, 3) Drivers are installed.'
+        };
+      }
+
+      return {
+        success: false,
+        message: `Thumb match failed: ${errorMessage}`
       };
     }
   },
@@ -414,7 +429,7 @@ export const biometricService = {
     }
   },
 
-  submitThumbCapture: async (applicationNumber: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
+  submitThumbCapture: async (applicationNumber: string, thumbData?: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-thumb-capture`, {
         method: 'POST',

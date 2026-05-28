@@ -1,18 +1,12 @@
 const express = require('express');
-const axios = require('axios');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
-const FormData = require('form-data');
 const logger = require('../config/logger');
 const imageStorage = require('../utils/imageStorage');
-const SyncService = require('../services/syncService');
 
 // Mock biometric data storage (replace with database in production)
 const biometricData = new Map();
-
-// Initialize sync service
-const syncService = new SyncService();
 
 // Helper function to convert base64 to image file
 function base64ToImageFile(base64Data, imageType) {
@@ -59,108 +53,6 @@ function base64ToImageFile(base64Data, imageType) {
       error: error.message
     });
     return null;
-  }
-}
-
-// Helper function to sync biometric data to cloud backend with actual image files
-async function syncBiometricDataToCloud(biometricPayload) {
-  const tempFiles = []; // Track temp files for cleanup
-  
-  try {
-    const cloudBackendUrl = process.env.CLOUD_BACKEND_URL || 'http://localhost:8040';
-    
-    logger.info('Sending biometric data to cloud backend', {
-      hallTicket: biometricPayload.hallTicket,
-      captureType: biometricPayload.captureType,
-      cloudUrl: cloudBackendUrl,
-      hasFaceImage: !!biometricPayload.faceImagePath,
-      hasThumbImage: !!biometricPayload.thumbImagePath
-    });
-
-    // Prepare FormData for multipart upload
-    const formData = new FormData();
-    
-    // Add metadata as JSON string
-    formData.append('metadata', JSON.stringify({
-      hallTicket: biometricPayload.hallTicket,
-      slot: biometricPayload.slot || biometricPayload.examSlot || null,
-      candidateId: biometricPayload.userExamApplicationId || biometricPayload.candidateId,
-      candidateName: biometricPayload.candidateName,
-      emailId: biometricPayload.emailId,
-      phone: biometricPayload.phone,
-      gender: biometricPayload.gender,
-      captureType: biometricPayload.captureType,
-      centreCode: biometricPayload.centreCode,
-      centreName: biometricPayload.centreName,
-      examSlot: biometricPayload.examSlot,
-      examId: biometricPayload.examId,
-      userExamApplicationId: biometricPayload.userExamApplicationId,
-      timestamp: biometricPayload.timestamp,
-      localBackendId: biometricPayload.localBackendId,
-      // Essential Template Fields Only
-      ISOTemplateBase64: biometricPayload.ISOTemplateBase64,
-      TemplateBase64: biometricPayload.TemplateBase64
-    }));
-
-    // Add image files if they exist
-    if (biometricPayload.faceImagePath && fs.existsSync(biometricPayload.faceImagePath)) {
-      formData.append('faceImage', fs.createReadStream(biometricPayload.faceImagePath));
-      tempFiles.push(biometricPayload.faceImagePath);
-    }
-
-    if (biometricPayload.thumbImagePath && fs.existsSync(biometricPayload.thumbImagePath)) {
-      formData.append('thumbImage', fs.createReadStream(biometricPayload.thumbImagePath));
-      tempFiles.push(biometricPayload.thumbImagePath);
-    }
-
-    const response = await axios.post(
-      `${cloudBackendUrl}/api/biometric-details/submit`,
-      formData,
-      {
-        headers: formData.getHeaders(),
-        timeout: 30000 // 30 second timeout for file upload
-      }
-    );
-
-    if (response.data && response.data.successful) {
-      logger.success('Biometric data synced to cloud backend', {
-        hallTicket: biometricPayload.hallTicket,
-        cloudResponseId: response.data.id,
-        imagesStored: response.data.imagesStored
-      });
-      return {
-        success: true,
-        cloudId: response.data.id,
-        message: 'Data synced to cloud successfully'
-      };
-    } else {
-      throw new Error(response.data?.message || 'Cloud sync failed');
-    }
-  } catch (error) {
-    logger.warn('Cloud sync error (data still saved locally)', {
-      hallTicket: biometricPayload.hallTicket,
-      error: error.message,
-      code: error.code,
-      status: error.response?.status
-    });
-    // Don't throw - let local save succeed even if cloud sync fails
-    return {
-      success: false,
-      error: error.message,
-      message: 'Saved locally, cloud sync pending'
-    };
-  } finally {
-    // Cleanup temp files
-    tempFiles.forEach(filePath => {
-      try {
-        if (fs.existsSync(filePath)) {
-          fs.unlinkSync(filePath);
-          logger.info('Cleaned up temp image file', { filePath });
-        }
-      } catch (err) {
-        logger.warn('Failed to cleanup temp file', { filePath, error: err.message });
-      }
-    });
   }
 }
 
@@ -225,49 +117,14 @@ router.post('/submit-face-capture', async (req, res) => {
       submitTimestamp: candidate.submitTimestamp
     });
 
-    // ASYNC: Send face data to cloud using new sync service
-    (async () => {
-      try {
-        // Reset sync state so manual recapture is uploaded again
-        const syncIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
-        syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'face', {
-          synced: false,
-          error: null,
-          retryCount: 0,
-          localPath: capturedImagePath
-        });
-        
-        const candidateData = {
-          applicationNumber: syncIdentifier,
-          hallTicket: syncIdentifier,
-          id: candidate.id,
-          candidateName: candidate.candidateName,
-          emailId: candidate.emailId,
-          phone: candidate.phone || '',
-          gender: candidate.gender || 'other',
-          centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
-          centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-          examSlot: candidate.examSlot || candidate.slot || (require('./candidates').getCentreInfo().examSlot || ''),
-          slot: slot || candidate.slot || candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
-          examId: candidate.examId || '',
-          userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
-          timestamp: candidate.imageCaptureTimestamp,
-          faceData: faceData,
-          thumbData: null,
-          ISOTemplateBase64: null,
-          TemplateBase64: null,
-          localImagePath: capturedImagePath // Add image path for sync
-        };
-        
-        await syncService.syncBiometricData(candidateData, 'face', { force: true });
-      } catch (syncError) {
-        if (syncError) logger.error('Face sync error:', syncError);
-      }
-    })();
+    logger.info('Face capture submitted locally', {
+      applicationNumber: candidate.applicationNumber || candidate.hallTicket || candidate.id,
+      capturedImagePath
+    });
 
     res.json({
       successful: true,
-      message: 'Face capture submitted successfully'
+      message: 'Face capture submitted successfully (local only)'
     });
 
   } catch (error) {
@@ -302,10 +159,22 @@ router.post('/submit-thumb-capture', async (req, res) => {
       ip: req.ip 
     });
 
-    if (!thumbData || !lookupKey) {
+    const hasThumbData = Boolean(thumbData);
+    const deviceResponse = rawDeviceResponse || {};
+    const hasDeviceTemplate = Boolean(deviceResponse?.ISOTemplateBase64 || deviceResponse?.TemplateBase64);
+
+    if (!lookupKey) {
       return res.status(400).json({
         successful: false,
-        message: 'Thumb data and application number are required'
+        message: 'Application number is required'
+      });
+    }
+
+    // Allow submission with existing template data when no new thumbData is provided
+    if (!hasThumbData && !ISOTemplateBase64 && !TemplateBase64 && !hasDeviceTemplate) {
+      return res.status(400).json({
+        successful: false,
+        message: 'Thumb data or existing template data is required for submission'
       });
     }
 
@@ -326,15 +195,16 @@ router.post('/submit-thumb-capture', async (req, res) => {
     }
 
     const candidateIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
-    const biometricImagePath = imageStorage.saveBase64Image(thumbData, candidateIdentifier, 'biometric');
-    
-    candidate.thumbCaptureData = thumbData;
-    candidate.biometricImagePath = biometricImagePath;
+
+    if (thumbData) {
+      const biometricImagePath = imageStorage.saveBase64Image(thumbData, candidateIdentifier, 'biometric');
+      candidate.thumbCaptureData = thumbData;
+      candidate.biometricImagePath = biometricImagePath;
+    }
+
     candidate.thumbStatus = 'Completed';
-    
-    const deviceResponse = rawDeviceResponse || {};
-    candidate.ISOTemplateBase64 = deviceResponse.ISOTemplateBase64 || ISOTemplateBase64 || null;
-    candidate.TemplateBase64 = deviceResponse.TemplateBase64 || TemplateBase64 || null;
+    candidate.ISOTemplateBase64 = deviceResponse.ISOTemplateBase64 || ISOTemplateBase64 || candidate.ISOTemplateBase64 || null;
+    candidate.TemplateBase64 = deviceResponse.TemplateBase64 || TemplateBase64 || candidate.TemplateBase64 || null;
 
     logger.info('Assigned thumb biometric templates', {
       hallTicket,
@@ -365,49 +235,14 @@ router.post('/submit-thumb-capture', async (req, res) => {
       submitTimestamp: candidate.submitTimestamp
     });
 
-    // ASYNC: Send thumb data to cloud using new sync service
-    (async () => {
-      try {
-        // Reset sync state so manual recapture is uploaded again
-        const syncIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
-        syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'thumb', {
-          synced: false,
-          error: null,
-          retryCount: 0,
-          localPath: biometricImagePath
-        });
-        
-        const candidateData = {
-          applicationNumber: syncIdentifier,
-          hallTicket: syncIdentifier,
-          id: candidate.id,
-          candidateName: candidate.candidateName,
-          emailId: candidate.emailId,
-          phone: candidate.phone || '',
-          gender: candidate.gender || 'other',
-          centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
-          centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-          examSlot: candidate.examSlot || candidate.slot || (require('./candidates').getCentreInfo().examSlot || ''),
-          slot: slot || candidate.slot || candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
-          examId: candidate.examId || '',
-          userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
-          timestamp: candidate.thumbCaptureTimestamp,
-          faceData: null,
-          thumbData: thumbData,
-          ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
-          TemplateBase64: candidate.TemplateBase64 || null,
-          localImagePath: biometricImagePath // Add image path for sync
-        };
-        
-        await syncService.syncBiometricData(candidateData, 'thumb', { force: true });
-      } catch (syncError) {
-        logger.error('Thumb sync error:', syncError);
-      }
-    })();
+    logger.info('Thumb capture submitted locally', {
+      applicationNumber: candidate.applicationNumber || candidate.hallTicket || candidate.id,
+      biometricImagePath
+    });
 
     res.json({
       successful: true,
-      message: 'Thumb capture submitted successfully'
+      message: 'Thumb capture submitted successfully (local only)'
     });
 
   } catch (error) {
@@ -580,118 +415,6 @@ router.get('/', (req, res) => {
 
   } catch (error) {
     logger.error('Error fetching all biometric data', {
-      error: error.message,
-      stack: error.stack,
-      ip: req.ip
-    });
-    res.status(500).json({
-      successful: false,
-      message: 'Internal server error'
-    });
-  }
-});
-
-// Batch sync all completed biometric captures to cloud
-router.post('/sync-all-to-cloud', async (req, res) => {
-  try {
-    const candidatesModule = require('./candidates');
-    const candidates = candidatesModule.getCandidates();
-    
-    // Find all candidates with completed biometric
-    const toSync = candidates.filter(c => c.biometricStatus === 'Completed');
-    
-    logger.info('Starting batch sync to cloud', { 
-      totalCompleted: toSync.length,
-      ip: req.ip 
-    });
-    
-    const results = {
-      successful: 0,
-      failed: 0,
-      total: toSync.length,
-      synced: [],
-      errors: []
-    };
-    
-    // Sync each candidate
-    for (const candidate of toSync) {
-      try {
-        const syncResult = await syncBiometricDataToCloud({
-          // Candidate Identification
-          hallTicket: candidate.hallTicket,
-          slot: candidate.slot || candidate.examSlot || '',
-          candidateId: candidate.id,
-          candidateName: candidate.candidateName,
-          emailId: candidate.emailId,
-          phone: candidate.phone || '',
-          gender: candidate.gender || 'other',
-          
-          // Biometric Data
-          faceData: candidate.faceCaptureData || null,
-          thumbData: candidate.thumbCaptureData || null,
-          captureType: 'both',
-          
-          // Essential Template Fields Only
-          ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
-          TemplateBase64: candidate.TemplateBase64 || null,
-          
-          // Centre Information
-          centreCode: candidate.centreCode,
-          centreName: candidate.centreName,
-          examSlot: candidate.examSlot,
-          
-          // Exam Information
-          examId: candidate.examId || '',
-          userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || '',
-          
-          // Sync Metadata
-          timestamp: candidate.thumbCaptureTimestamp || new Date().toISOString(),
-          localBackendId: process.env.LOCAL_BACKEND_ID || 'local-biometric-center-1'
-        });
-        
-        if (syncResult.success) {
-          candidate.syncedToCloud = true;
-          candidate.syncedAt = new Date().toISOString();
-          candidate.cloudId = syncResult.cloudId;
-          results.successful++;
-          results.synced.push({
-            hallTicket: candidate.hallTicket,
-            status: 'success',
-            cloudId: syncResult.cloudId
-          });
-        } else {
-          candidate.syncError = syncResult.error;
-          candidate.syncedToCloud = false;
-          results.failed++;
-          results.errors.push({
-            hallTicket: candidate.hallTicket,
-            error: syncResult.error
-          });
-        }
-      } catch (error) {
-        candidate.syncError = error.message;
-        candidate.syncedToCloud = false;
-        results.failed++;
-        results.errors.push({
-          hallTicket: candidate.hallTicket,
-          error: error.message
-        });
-      }
-    }
-    
-    // Save updated candidates data
-    await candidatesModule.saveToDisk();
-    
-    logger.success('Batch sync completed', results);
-    
-    res.json({
-      successful: true,
-      data: results,
-      message: `Synced ${results.successful} candidates successfully, ${results.failed} failed`
-    });
-    
-  } catch (error) {
-    logger.error('Error in batch sync', {
       error: error.message,
       stack: error.stack,
       ip: req.ip
