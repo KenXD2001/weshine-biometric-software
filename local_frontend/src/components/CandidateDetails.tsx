@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserPlus, RotateCcw, ChevronDown, Loader2 } from 'lucide-react';
+import { UserPlus, RotateCcw, ChevronDown, Loader2, X } from 'lucide-react';
 import Button from './ui/Button';
 
 interface CandidateDetailsProps {
-  hallTicket: string;
-  setHallTicket: (value: string) => void;
+  applicationNumber: string;
+  setApplicationNumber: (value: string) => void;
   candidateName: string;
   setCandidateName: (value: string) => void;
   email: string;
@@ -17,7 +17,7 @@ interface CandidateDetailsProps {
   setCapturedImages: (images: { signature: boolean; uploaded: boolean; camera: boolean; live: boolean; thumb: boolean; }) => void;
   setCapturedImage: (image: string) => void;
   onCandidateLoaded: (loaded: boolean) => void;
-  onSubmit: (hallTicket: string) => void;
+  onSubmit: (applicationNumber: string) => void;
   isSubmitting: boolean;
   capturedImages: { signature: boolean; uploaded: boolean; camera: boolean; live: boolean; thumb: boolean; };
   onNewCandidate: () => void;
@@ -26,8 +26,8 @@ interface CandidateDetailsProps {
 }
 
 const CandidateDetails: React.FC<CandidateDetailsProps> = ({
-  hallTicket,
-  setHallTicket,
+  applicationNumber,
+  setApplicationNumber,
   candidateName,
   setCandidateName,
   email,
@@ -50,16 +50,16 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [searchResults, setSearchResults] = useState<string[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [selectedHallTicket, setSelectedHallTicket] = useState('');
+  const [selectedApplicationNumber, setSelectedApplicationNumber] = useState('');
   const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<number | null>(null);
 
-  const canNewCandidate = Boolean(hallTicket.trim() || candidateName.trim() || email.trim());
+  const canNewCandidate = Boolean(applicationNumber.trim() || candidateName.trim() || email.trim());
   const canSubmitBiometrics = capturedImages.live && capturedImages.thumb;
   const isNewCandidateEnabled = canNewCandidate; // explicit alias for clarity
-  // Search hall tickets from API with debouncing
-  const searchHallTickets = async (query: string) => {
+  // Search application numbers from API with debouncing
+  const searchApplicationNumbers = async (query: string) => {
     if (!query.trim()) {
       setSearchResults([]);
       return;
@@ -83,7 +83,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
           setSearchResults([]);
         }
       } catch (error) {
-        console.error('Error searching hall tickets:', error);
+        console.error('Error searching application numbers:', error);
         setSearchResults([]);
       } finally {
         setIsSearching(false);
@@ -91,12 +91,12 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
     }, 1000); // 1 second delay
   };
 
-  // Fetch candidate data when hall ticket is entered
+  // Fetch candidate data when application number is entered
   const fetchCandidateData = async () => {
-    if (!hallTicket.trim()) return;
+    if (!applicationNumber.trim()) return;
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/candidate-details/all?hallTicket=${hallTicket}`);
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/candidate-details/all?applicationNumber=${encodeURIComponent(applicationNumber.trim())}`);
       const data = await response.json();
 
       console.log('[CandidateDetails] candidate fetch result:', data);
@@ -136,7 +136,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
       } else {
         onCandidateLoaded(false);
         onCandidateMetadataLoaded({ slot: '', userExamApplicationId: '' });
-        console.log('[CandidateDetails] Candidate not found or no data', { hallTicket });
+        console.log('[CandidateDetails] Candidate not found or no data', { applicationNumber });
       }
     } catch (error) {
       console.error('Error fetching candidate data:', error);
@@ -145,8 +145,8 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
     }
   };
 
-  // Handle Enter key press on hall ticket input
-  const handleHallTicketKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  // Handle Enter key press on application number input
+  const handleInputKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       setIsDropdownOpen(false);
       fetchCandidateData();
@@ -156,12 +156,12 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   // Handle input change
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
-    setHallTicket(value);
+    setApplicationNumber(value);
     onCandidateLoaded(false);
     
     // Only search if value is different from current selection
-    if (value.trim() && value !== selectedHallTicket) {
-      searchHallTickets(value);
+    if (value.trim() && value !== selectedApplicationNumber) {
+      searchApplicationNumbers(value);
       setIsDropdownOpen(true);
     } else {
       setSearchResults([]);
@@ -169,10 +169,10 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
     }
   };
 
-  // Handle hall ticket selection from dropdown
-  const handleHallTicketSelect = (selectedTicket: string) => {
-    setHallTicket(selectedTicket);
-    setSelectedHallTicket(selectedTicket);
+  // Handle application number selection from dropdown
+  const handleApplicationNumberSelect = (selectedNumber: string) => {
+    setApplicationNumber(selectedNumber);
+    setSelectedApplicationNumber(selectedNumber);
     setIsDropdownOpen(false);
     setSearchResults([]);
     onCandidateLoaded(false);
@@ -181,6 +181,13 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
     setTimeout(() => {
       inputRef.current?.focus();
     }, 100);
+  };
+
+  const clearApplicationNumber = () => {
+    setApplicationNumber('');
+    setSelectedApplicationNumber('');
+    setSearchResults([]);
+    setIsDropdownOpen(false);
   };
 
   // Close dropdown when clicking outside
@@ -215,12 +222,23 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
             <input
               type="text"
               ref={inputRef}
-              value={hallTicket}
+              value={applicationNumber}
               onChange={handleInputChange}
-              onKeyPress={handleHallTicketKeyPress}
-              placeholder="Enter Hall Ticket"
-              className="w-full px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 bg-white placeholder-gray-400 text-sm text-black pr-10"
+              onKeyPress={handleInputKeyPress}
+              placeholder="Enter Application Number"
+              className="w-full px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 bg-white placeholder-gray-400 text-sm text-black pr-14"
             />
+            {applicationNumber && (
+              <button
+                type="button"
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={clearApplicationNumber}
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm transition-all duration-200 hover:cursor-pointer hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                aria-label="Clear application number"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
             {/* Dropdown */}
             {isDropdownOpen && (
               <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
@@ -234,23 +252,23 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
                     <div
                       key={ticket}
                       className={`px-3 py-2 cursor-pointer hover:bg-blue-50 transition-colors text-sm ${
-                        selectedHallTicket === ticket ? 'bg-blue-100 text-blue-700' : 'text-gray-700'
+                        selectedApplicationNumber === ticket ? 'bg-blue-100 text-blue-700' : 'text-gray-700'
                       }`}
-                      onClick={() => handleHallTicketSelect(ticket)}
+                      onClick={() => handleApplicationNumberSelect(ticket)}
                     >
                       {ticket}
                     </div>
                   ))
                 ) : (
                   <div className="px-3 py-2 text-sm text-gray-500">
-                    No hall tickets found
+                    No application numbers found
                   </div>
                 )}
               </div>
             )}
             {/* Dropdown arrow */}
             {isDropdownOpen && (
-              <div className="absolute top-2 right-3 pointer-events-none">
+              <div className={`absolute top-2 ${applicationNumber ? 'right-10' : 'right-3'} pointer-events-none`}>
                 <ChevronDown className="h-4 w-4 text-gray-400" />
               </div>
             )}
@@ -312,7 +330,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
           </div>
           
           <Button 
-            onClick={() => onSubmit(hallTicket)}
+            onClick={() => onSubmit(applicationNumber)}
             variant="primary"
             size="sm"
             fullWidth

@@ -16,10 +16,18 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
         {/* Content */}
         <div className="relative z-10 h-full flex flex-col justify-between p-8">
           {/* Top logo */}
-          <div>
+          <div className="flex items-center gap-3">
             <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center border border-white/30">
-              {/* <span className="text-2xl font-bold text-white">✦</span> */}
-              <img src="/digi-loader-white.png" alt="Logo" className="w-6 h-6" />
+              <img
+                src="/weshine-tech-white-logo.png"
+                alt="Logo"
+                className="w-8 h-4"
+              />
+            </div>
+
+            <div className="text-white leading-tight">
+              <span className="text-lg font-semibold">WeShine</span>
+              <span className="text-lg font-normal">Tech</span>
             </div>
           </div>
 
@@ -48,7 +56,7 @@ const AuthLayout: React.FC<AuthLayoutProps> = ({ children }) => {
           <div className="mb-6">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-sm">
               {/* <span className="text-xl font-bold text-white">✦</span> */}
-              <img src="/digi-loader-white.png" alt="Logo" className="w-6 h-6" />
+              <img src="/weshine-tech-white-logo.png" alt="Logo" className="w-8 h-4" />
             </div>
           </div>
 

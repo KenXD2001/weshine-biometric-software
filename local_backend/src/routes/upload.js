@@ -139,6 +139,36 @@ function parseCSV(csvContent) {
   return candidates;
 }
 
+function parseMediaManifest(rawContent) {
+  try {
+    const manifest = JSON.parse(rawContent);
+    if (!Array.isArray(manifest)) {
+      return [];
+    }
+
+    return manifest.map((entry) => {
+      const key = String(entry.applicationNumber || entry.applicationNo || entry.hallTicket || entry.candidateId || '').trim();
+      const files = Array.isArray(entry.files) ? entry.files.map((file) => String(file).trim()).filter(Boolean) : [];
+      return { key, files };
+    }).filter(({ key }) => !!key);
+  } catch (error) {
+    logger.warn('Failed to parse media_manifest.json', { error: error.message });
+    return [];
+  }
+}
+
+function resolveCandidateExamDate(candidate, fallbackExamDate = '') {
+  return (
+    candidate.examDate ||
+    candidate['Exam Date'] ||
+    candidate.exam_date ||
+    candidate.timeOfExam ||
+    candidate.examDateFormatted ||
+    fallbackExamDate ||
+    ''
+  );
+}
+
 function normalizeSlotLabel(slotValue) {
   const normalized = String(slotValue || '').trim().toLowerCase();
   if (!normalized) return '';
@@ -178,7 +208,13 @@ function resolveCandidateHallTicket(candidate, examSlot) {
     candidate.hallTicket ||
     candidate['Hall Ticket'] ||
     candidate['HallTicket'] ||
-    candidate.hallticket;
+    candidate.hallticket ||
+    candidate.applicationNumber ||
+    candidate['Application Number'] ||
+    candidate.application_number ||
+    candidate.candidateId ||
+    candidate['Candidate Id'] ||
+    candidate['CandidateID'];
 
   if (slotKey === 'slot_one' && slotOneHallTicket) return String(slotOneHallTicket).trim();
   if (slotKey === 'slot_two' && slotTwoHallTicket) return String(slotTwoHallTicket).trim();
@@ -458,7 +494,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT use any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', cityName: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', cityName: '', examDate: '', examSlot: '' };
     const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
     if (tokenCentreInfo) {
       centreInfo.code = centreInfo.code || tokenCentreInfo.code;
@@ -523,6 +559,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
           centreInfo.name = jsonData.centre.name || centreInfo.name || '';
           centreInfo.cityName = jsonData.centre.city || jsonData.centre.cityName || centreInfo.cityName || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
+          centreInfo.examDate = jsonData.centre.examDate || centreInfo.examDate || '';
         } else if (!centreInfo || !centreInfo.code) {
           // No centre info available from JSON or stored data
           throw new Error('Centre information missing in uploaded JSON and no stored centre assigned. Please login to assign a centre or include centre metadata in the upload.');
@@ -566,6 +603,13 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
       centreInfo.examSlot = resolveCandidateExamSlot(firstCandidateWithExamSlot, '').trim();
     }
 
+    const firstCandidateWithExamDate = candidates.find((candidate) =>
+      resolveCandidateExamDate(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithExamDate) {
+      centreInfo.examDate = resolveCandidateExamDate(firstCandidateWithExamDate, '').trim();
+    }
+
     if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
       centreInfo.code = tokenCentreInfo.code;
       centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
@@ -575,7 +619,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
     if (!centreInfo || !String(centreInfo.code || '').trim()) {
       return res.status(400).json({
         successful: false,
-        message: 'Centre information not available in uploaded data. Please ensure ZIP CSV contains Centre Code/Centre Name/City/Exam Slot metadata.'
+        message: 'Centre information not available in uploaded data. Please ensure uploaded data includes Centre Code, Centre Name, Exam Date, and Exam Slot metadata.'
       });
     }
 
@@ -619,7 +663,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
         const hallTicket = resolveCandidateHallTicket(candidate, centreInfo.examSlot);
         if (!hallTicket) {
-          throw new Error('Missing hall ticket for candidate');
+          throw new Error('Missing application number or hall ticket for candidate');
         }
         const candidateKey = (hallTicket || candidateId).toString();
         uploadedCandidateKeys.add(candidateKey);
@@ -691,6 +735,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
+          applicationNumber: candidate.userExamApplicationId || candidate.applicationNumber || candidateId,
           candidateName: candidateName,
           emailId: normalizedEmail || `${candidateName.toLowerCase().replace(/\s+/g, '')}@example.com`,
           gender: (candidate.gender || candidate.Gender || 'other').toLowerCase(),
@@ -718,6 +763,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
           centreCode: resolvedCandidateCentreCode,
           centreName: resolvedCentreName,
           city: resolvedCandidateCity,
+          examDate: centreInfo.examDate || resolveCandidateExamDate(candidate, centreInfo.examDate || ''),
           examSlot: resolvedCandidateExamSlot,
           // Timestamps (initially null)
           imageCaptureTimestamp: null,
@@ -878,6 +924,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
     logger.info('Searching for metadata and candidate data file in ZIP');
 
     let zipMetadata = null;
+    let zipMediaManifest = null;
 
     function searchForMetadataFile(dirPath) {
       const items = fs.readdirSync(dirPath);
@@ -903,7 +950,39 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       }
     }
 
+    function searchForMediaManifestFile(dirPath) {
+      const items = fs.readdirSync(dirPath);
+      for (const item of items) {
+        const itemPath = path.join(dirPath, item);
+        const stat = fs.statSync(itemPath);
+
+        if (stat.isFile() && item.toLowerCase() === 'media_manifest.json') {
+          try {
+            const manifestRaw = fs.readFileSync(itemPath, 'utf8');
+            zipMediaManifest = parseMediaManifest(manifestRaw);
+            logger.info('Found media_manifest.json in ZIP', { path: itemPath });
+          } catch (manifestError) {
+            logger.warn('Failed to parse media_manifest.json from ZIP', { error: manifestError.message, path: itemPath });
+          }
+          return;
+        }
+
+        if (stat.isDirectory() && !item.startsWith('.')) {
+          searchForMediaManifestFile(itemPath);
+          if (zipMediaManifest) return;
+        }
+      }
+    }
+
     searchForMetadataFile(extractionDir);
+    searchForMediaManifestFile(extractionDir);
+
+    const mediaManifestMap = new Map();
+    if (Array.isArray(zipMediaManifest)) {
+      zipMediaManifest.forEach(({ key, files }) => {
+        mediaManifestMap.set(String(key).trim(), Array.isArray(files) ? files : []);
+      });
+    }
 
     let candidateFile = null;
     let fileContent = null;
@@ -925,7 +1004,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
             fileType = 'CSV';
             logger.info('Found CSV file in ZIP', { fileName: item, path: itemPath });
             return;
-          } else if (item.toLowerCase().endsWith('.json') && item.toLowerCase() !== 'metadata.json') {
+          } else if (item.toLowerCase().endsWith('.json') && item.toLowerCase() !== 'metadata.json' && item.toLowerCase() !== 'media_manifest.json') {
             candidateFile = itemPath;
             fileType = 'JSON';
             logger.info('Found JSON file in ZIP', { fileName: item, path: itemPath });
@@ -990,7 +1069,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT fall back to any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { centreCode: '', centreName: '', cityName: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { centreCode: '', centreName: '', cityName: '', examDate: '', examSlot: '' };
     const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
     if (tokenCentreInfo) {
       centreInfo.centreCode = centreInfo.centreCode || tokenCentreInfo.code;
@@ -999,10 +1078,11 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
     }
 
     if (zipMetadata && typeof zipMetadata === 'object') {
-      centreInfo.centreCode = centreInfo.centreCode || String(zipMetadata.centreCode || '').trim();
+      centreInfo.centreCode = centreInfo.centreCode || String(zipMetadata.centreCode || zipMetadata.allocatedCentreCode || '').trim();
       centreInfo.centreName = centreInfo.centreName || String(zipMetadata.centreName || '').trim();
       centreInfo.cityName = centreInfo.cityName || String(zipMetadata.cityName || zipMetadata.city || '').trim();
-      centreInfo.examSlot = centreInfo.examSlot || String(zipMetadata.examSlot || '').trim();
+      centreInfo.examSlot = centreInfo.examSlot || String(zipMetadata.examSlot || zipMetadata.allocatedSlot || '').trim();
+      centreInfo.examDate = centreInfo.examDate || String(zipMetadata.examDate || '').trim();
       
       // Update candidate counts if available in metadata
       if (zipMetadata.candidateCount) {
@@ -1098,6 +1178,13 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       centreInfo.examSlot = resolveCandidateExamSlot(firstCandidateWithExamSlot, '').trim();
     }
 
+    const firstCandidateWithExamDate = candidates.find((candidate) =>
+      resolveCandidateExamDate(candidate, '').trim().length > 0
+    );
+    if (firstCandidateWithExamDate) {
+      centreInfo.examDate = resolveCandidateExamDate(firstCandidateWithExamDate, '').trim();
+    }
+
     if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
       centreInfo.code = tokenCentreInfo.code;
       centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
@@ -1107,7 +1194,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
     if (!centreInfo || !String(centreInfo.code || '').trim()) {
       return res.status(400).json({
         successful: false,
-        message: 'Centre information not available in uploaded data. Please ensure ZIP CSV contains Centre Code/Centre Name/City/Exam Slot metadata.'
+        message: 'Centre information not available in uploaded data. Please ensure uploaded data includes Centre Code, Centre Name, Exam Date, and Exam Slot metadata.'
       });
     }
 
@@ -1185,7 +1272,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
 
         const hallTicket = resolveCandidateHallTicket(candidate, centreInfo.examSlot);
         if (!hallTicket) {
-          throw new Error('Missing hall ticket for candidate');
+          throw new Error('Missing application number or hall ticket for candidate');
         }
 
         const candidateKey = (hallTicket || candidateId).toString();
@@ -1219,6 +1306,27 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         // Try to find signature image (prefer explicit path from CSV)
         const signatureFileFromRow = String(candidate['Signature File'] || candidate.signatureFile || '').trim();
         let signatureFilePath = signatureFileFromRow.replace(/^\/+/, '');
+
+        const manifestKey = String(candidate.applicationNumber || candidate.candidateId || candidate['Application Number'] || candidate.hallTicket || '').trim();
+        const manifestFiles = manifestKey ? mediaManifestMap.get(manifestKey) : [];
+        const manifestPhotoPath = manifestFiles.find((file) => file.toLowerCase().includes('photo')) || '';
+        const manifestSignaturePath = manifestFiles.find((file) => file.toLowerCase().includes('signatur')) || '';
+
+        if (!photoFilePath && manifestPhotoPath) {
+          photoFilePath = manifestPhotoPath.replace(/^\/+/, '');
+        }
+        if (!signatureFilePath && manifestSignaturePath) {
+          signatureFilePath = manifestSignaturePath.replace(/^\/+/, '');
+        }
+
+        if (!photoFilePath) {
+          const photoFileName = `${candidateId}.jpg`;
+          photoFilePath = `photos/${photoFileName}`;
+        }
+        if (fs.existsSync(path.join(extractionDir, photoFilePath))) {
+          uploadedImagePath = copyImageFromZIP(photoFilePath, extractionDir, candidateId, 'photo');
+        }
+
         if (!signatureFilePath) {
           const fallbackPhotoFileName = `${candidateId}.jpg`;
           signatureFilePath = `signatures/${fallbackPhotoFileName}`;
@@ -1234,6 +1342,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
+          applicationNumber: candidate.userExamApplicationId || candidate['Application Number'] || candidateId,
           candidateName: candidateName,
           emailId: candidate.emailId || candidate.email || `${candidateName.toLowerCase().replace(/\s+/g, '')}@example.com`,
           gender: (candidate.gender || candidate.Gender || 'other').toLowerCase(),
@@ -1260,6 +1369,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           centreCode: resolvedCandidateCentreCode,
           centreName: resolvedCentreName,
           city: resolvedCandidateCity,
+          examDate: centreInfo.examDate || resolveCandidateExamDate(candidate, centreInfo.examDate || ''),
           examSlot: resolvedCandidateExamSlot,
           // Timestamps
           imageCaptureTimestamp: null,

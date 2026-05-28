@@ -12,6 +12,7 @@ let centreInfo = {
   centreCode: '',
   centreName: '',
   cityName: '',
+  examDate: '',
   examSlot: ''
 };
 
@@ -24,6 +25,47 @@ const sanitizeCandidate = (candidate) => {
 const sanitizeCandidates = (candidateList) => {
   if (!Array.isArray(candidateList)) return [];
   return candidateList.map(sanitizeCandidate);
+};
+
+const normalizeCandidateKey = (candidate) => {
+  if (!candidate || typeof candidate !== 'object') return '';
+  return String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || candidate.id || '')
+    .trim()
+    .toLowerCase();
+};
+
+const normalizeQueryKey = (value) => String(value || '').trim().toLowerCase();
+
+const findCandidateByKey = (key) => {
+  const normalizedKey = normalizeQueryKey(key);
+  if (!normalizedKey) return null;
+  return candidates.find((c) => normalizeCandidateKey(c) === normalizedKey);
+};
+
+const getCandidateKey = (candidate) => {
+  return String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || candidate.id || '').trim();
+};
+
+const getCandidateKeyLower = (candidate) => normalizeCandidateKey(candidate);
+
+const getUniqueCandidateKeys = (candidateList) => {
+  return [...new Set(
+    candidateList.map((c) => getCandidateKey(c)).filter(Boolean)
+  )];
+};
+
+const getCandidateLookupValue = (candidate) => {
+  return candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || candidate.id || '';
+};
+
+const getCandidateLookupValueLower = (candidate) => String(getCandidateLookupValue(candidate)).trim().toLowerCase();
+
+const byQueryMatch = (candidate, query) => {
+  const normalizedQuery = normalizeQueryKey(query);
+  if (!normalizedQuery) return false;
+  const appValue = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '').toLowerCase();
+  const hallValue = String(candidate.hallTicket || '').toLowerCase();
+  return appValue.includes(normalizedQuery) || hallValue.includes(normalizedQuery);
 };
 
 const getISTDateTime = () => {
@@ -74,6 +116,7 @@ const convertUtcToIST = (utcTimestamp) => {
       centreInfo.centreCode = loadedCentreInfo.centreCode;
       centreInfo.centreName = loadedCentreInfo.centreName;
       centreInfo.cityName = loadedCentreInfo.cityName || '';
+      centreInfo.examDate = loadedCentreInfo.examDate || '';
       centreInfo.examSlot = loadedCentreInfo.examSlot;
     }
     
@@ -86,26 +129,26 @@ const convertUtcToIST = (utcTimestamp) => {
   }
 })();
 
-// Get all candidate details by hall ticket (with biometric data if available)
+// Get all candidate details by application number or hall ticket (with biometric data if available)
 router.get('/all', (req, res) => {
   try {
-    const { hallTicket } = req.query;
-    const normalizedHallTicket = String(hallTicket || '').trim().toLowerCase();
-    
-    logger.info('Fetching candidate details', { hallTicket, ip: req.ip });
+    const { applicationNumber, hallTicket } = req.query;
+    const lookupKey = String(applicationNumber || hallTicket || '').trim();
+    const normalizedLookup = normalizeQueryKey(lookupKey);
 
-    if (!normalizedHallTicket) {
+    logger.info('Fetching candidate details', { applicationNumber, hallTicket, ip: req.ip });
+
+    if (!normalizedLookup) {
       return res.status(400).json({
         successful: false,
-        message: 'Hall ticket is required'
+        message: 'Application number or hall ticket is required'
       });
     }
 
-    // First check if candidate exists in regular candidates array
-    let candidate = candidates.find(c => String(c.hallTicket || '').trim().toLowerCase() === normalizedHallTicket);
-    
+    let candidate = findCandidateByKey(lookupKey);
+
     if (!candidate) {
-      logger.warn('Candidate not found', { hallTicket, ip: req.ip });
+      logger.warn('Candidate not found', { lookupKey, ip: req.ip });
       return res.status(404).json({
         successful: false,
         message: 'Candidate not found'
@@ -118,7 +161,7 @@ router.get('/all', (req, res) => {
       if (fs.existsSync(biometricFilePath)) {
         const fileContent = fs.readFileSync(biometricFilePath, 'utf8');
         const biometricData = JSON.parse(fileContent);
-        const biometricCandidate = biometricData.find(c => String(c.hallTicket || '').trim().toLowerCase() === normalizedHallTicket);
+        const biometricCandidate = biometricData.find(c => normalizeCandidateKey(c) === normalizedLookup);
         
         // If biometric data exists, merge it with candidate data
         if (biometricCandidate) {
@@ -132,17 +175,17 @@ router.get('/all', (req, res) => {
             phone: biometricCandidate.phone || candidate.phone,
             gender: biometricCandidate.gender || candidate.gender,
           };
-          logger.info('Merged biometric data with candidate details', { hallTicket });
+          logger.info('Merged biometric data with candidate details', { lookupKey });
         }
       }
     } catch (bioError) {
       logger.warn('Could not load biometric data, using regular candidate data', {
-        hallTicket,
+        lookupKey,
         error: bioError.message
       });
     }
 
-    logger.success('Candidate details retrieved', { hallTicket, candidateId: candidate.id });
+    logger.success('Candidate details retrieved', { applicationNumber: lookupKey, candidateId: candidate.id });
 
     res.json({
       successful: true,
@@ -172,10 +215,9 @@ router.get('/all/filters', (req, res) => {
     let filteredCandidates = [...candidates];
 
     // Apply filters if provided
-    if (filters.hallTicket) {
-      filteredCandidates = filteredCandidates.filter(c => 
-        c.hallTicket.toLowerCase().includes(filters.hallTicket.toLowerCase())
-      );
+    if (filters.applicationNumber || filters.hallTicket) {
+      const query = String(filters.applicationNumber || filters.hallTicket || '').trim();
+      filteredCandidates = filteredCandidates.filter((c) => byQueryMatch(c, query));
     }
 
     if (filters.candidateName) {
@@ -211,6 +253,7 @@ router.get('/centre-info', (req, res) => {
       data: {
         centreCode: centreInfo.centreCode || '',
         centreName: centreInfo.centreName || '',
+        examDate: centreInfo.examDate || '',
         cityName: centreInfo.cityName || '',
         examSlot: centreInfo.examSlot || ''
       }
@@ -262,7 +305,7 @@ const buildCandidateTableRows = (candidateList) => {
 
     return `
     <tr>
-      <td class="nowrap">${c.hallTicket || '-'}</td>
+      <td class="nowrap">${c.applicationNumber || c.hallTicket || '-'}</td>
       <td>${c.candidateName || '-'}</td>
       <td>${c.emailId || '-'}</td>
       <td>${c.gender || '-'}</td>
@@ -285,10 +328,11 @@ const buildCandidateTableRows = (candidateList) => {
 router.get('/export/pdf', async (req, res) => {
   try {
     let filteredCandidates = [...candidates];
-    const { hallTicket, candidateName, status } = req.query;
+    const { applicationNumber, hallTicket, candidateName, status } = req.query;
 
-    if (hallTicket) {
-      filteredCandidates = filteredCandidates.filter(c => c.hallTicket.toLowerCase().includes(String(hallTicket).toLowerCase()));
+    if (hallTicket || applicationNumber) {
+      const query = String(applicationNumber || hallTicket || '').trim();
+      filteredCandidates = filteredCandidates.filter((c) => byQueryMatch(c, query));
     }
     if (candidateName) {
       filteredCandidates = filteredCandidates.filter(c => c.candidateName.toLowerCase().includes(String(candidateName).toLowerCase()));
@@ -331,26 +375,23 @@ router.get('/search', async (req, res) => {
 
     const normalizedQuery = String(query).trim().toLowerCase();
     
-    // Search candidates by hall ticket
-    const matchingCandidates = candidates.filter(candidate => {
-      const hallTicket = String(candidate.hallTicket || '').toLowerCase();
-      return hallTicket.includes(normalizedQuery);
-    });
+    const matchingCandidates = candidates.filter(candidate => byQueryMatch(candidate, normalizedQuery));
 
-    // Extract unique hall tickets
-    const uniqueHallTickets = [...new Set(
-      matchingCandidates.map(candidate => candidate.hallTicket).filter(Boolean)
+    const uniqueResults = [...new Set(
+      matchingCandidates
+        .map(candidate => getCandidateLookupValue(candidate))
+        .filter(Boolean)
     )];
 
-    logger.info('Hall ticket search completed', {
+    logger.info('Candidate lookup search completed', {
       query: normalizedQuery,
-      resultsCount: uniqueHallTickets.length,
+      resultsCount: uniqueResults.length,
       ip: req.ip
     });
 
     res.json({
       successful: true,
-      data: uniqueHallTickets
+      data: uniqueResults
     });
 
   } catch (error) {
@@ -447,23 +488,23 @@ router.get('/counts', (req, res) => {
 // Match candidate - simply check if hall ticket exists in uploaded data
 router.get('/match', (req, res) => {
   try {
-    const { hallTicket } = req.query;
-    const normalizedHallTicket = String(hallTicket || '').trim().toLowerCase();
+    const { applicationNumber, hallTicket } = req.query;
+    const lookupKey = String(applicationNumber || hallTicket || '').trim();
+    const normalizedLookup = normalizeQueryKey(lookupKey);
     
-    logger.info('Checking if candidate exists', { hallTicket, ip: req.ip });
+    logger.info('Checking if candidate exists', { applicationNumber, hallTicket, ip: req.ip });
 
-    if (!normalizedHallTicket) {
+    if (!normalizedLookup) {
       return res.status(400).json({
         successful: false,
-        message: 'Hall ticket is required'
+        message: 'Application number or hall ticket is required'
       });
     }
 
-    // Simply check if candidate with this hall ticket exists
-    const candidate = candidates.find(c => String(c.hallTicket || '').trim().toLowerCase() === normalizedHallTicket);
+    const candidate = findCandidateByKey(lookupKey);
     
     if (!candidate) {
-      logger.warn('Candidate not found', { hallTicket, ip: req.ip });
+      logger.warn('Candidate not found', { lookupKey, ip: req.ip });
       return res.status(404).json({
         code: 'NO_MATCH',
         message: 'Candidate not found'
@@ -472,7 +513,7 @@ router.get('/match', (req, res) => {
 
     // Candidate found - return success
     logger.success('Candidate found', { 
-      hallTicket, 
+      applicationNumber: lookupKey,
       candidateId: candidate.id,
       candidateName: candidate.candidateName
     });
@@ -504,6 +545,7 @@ router.get('/centre-info', (req, res) => {
     const info = {
       centreCode: centreInfo.centreCode || '',
       centreName: centreInfo.centreName || '',
+      examDate: centreInfo.examDate || '',
       cityName: centreInfo.cityName || '',
       examSlot: centreInfo.examSlot || ''
     };
@@ -594,14 +636,18 @@ module.exports = {
     centreInfo.centreCode = info.centreCode;
     centreInfo.centreName = info.centreName;
     centreInfo.cityName = info.cityName || info.city || '';
+    centreInfo.examDate = info.examDate || info.exam_date || '';
     centreInfo.examSlot = info.examSlot;
 
-    // Keep existing candidates aligned with the current centre info code
+    // Keep existing candidates aligned with the current centre info code and exam date
     if (centreInfo.centreCode) {
       candidates.forEach((candidate) => {
         candidate.centreCode = centreInfo.centreCode;
         if (!candidate.cityName && centreInfo.cityName) {
           candidate.cityName = centreInfo.cityName;
+        }
+        if (!candidate.examDate && centreInfo.examDate) {
+          candidate.examDate = centreInfo.examDate;
         }
         if (!candidate.examSlot && centreInfo.examSlot) {
           candidate.examSlot = centreInfo.examSlot;

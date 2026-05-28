@@ -3,24 +3,16 @@ import { AlertCircle, Check } from 'lucide-react';
 
 interface ExaminationDetailsProps {
   centreCode: string;
-  setCentreCode: (value: string) => void;
   centreName: string;
-  setCentreName: (value: string) => void;
-  cityName: string;
-  setCityName: (value: string) => void;
+  examDate: string;
   examSlot: string;
-  setExamSlot: (value: string) => void;
 }
 
 const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
   centreCode,
-  setCentreCode,
   centreName,
-  setCentreName,
-  cityName,
-  setCityName,
-  examSlot,
-  setExamSlot
+  examDate,
+  examSlot
 }) => {
   return (
     <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-gray-200/50 shadow-lg shadow-gray-200/25 hover:shadow-xl transition-shadow duration-300">
@@ -42,7 +34,9 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
             <input
               type="text"
               value={centreCode}
-              onChange={(e) => setCentreCode(e.target.value)}
+              readOnly
+              tabIndex={-1}
+              onFocus={(e) => e.target.blur()}
               placeholder="24"
               style={{
                 border: '1px solid #e5e7eb',
@@ -50,7 +44,8 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
                 padding: '6px 8px',
                 width: '100%',
                 fontSize: '14px',
-                color: centreCode ? '#000' : '#999'
+                color: centreCode ? '#000' : '#999',
+                cursor: 'not-allowed'
               }}
             />
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">
@@ -66,7 +61,9 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
             <input
               type="text"
               value={centreName}
-              onChange={(e) => setCentreName(e.target.value)}
+              readOnly
+              tabIndex={-1}
+              onFocus={(e) => e.target.blur()}
               placeholder="M D Indraprashta Sr Sec School"
               style={{
                 border: '1px solid #e5e7eb',
@@ -74,7 +71,8 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
                 padding: '6px 8px',
                 width: '100%',
                 fontSize: '14px',
-                color: centreName ? '#000' : '#999'
+                color: centreName ? '#000' : '#999',
+                cursor: 'not-allowed'
               }}
             />
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">
@@ -84,21 +82,24 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
         </div>
         <div className="group">
           <label className="block text-xs font-semibold text-gray-700 mb-1 group-focus-within:text-blue-600 transition-colors">
-            City Name <span className="text-red-500">*</span>
+            Exam Date <span className="text-red-500">*</span>
           </label>
           <div className="relative">
             <input
               type="text"
-              value={cityName}
-              onChange={(e) => setCityName(e.target.value)}
-              placeholder="New Delhi"
+              value={examDate}
+              readOnly
+              tabIndex={-1}
+              onFocus={(e) => e.target.blur()}
+              placeholder="13-06-2026"
               style={{
                 border: '1px solid #e5e7eb',
                 borderRadius: '8px',
                 padding: '6px 8px',
                 width: '100%',
                 fontSize: '14px',
-                color: cityName ? '#000' : '#999'
+                color: examDate ? '#000' : '#999',
+                cursor: 'not-allowed'
               }}
             />
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">
@@ -114,7 +115,9 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
             <input
               type="text"
               value={examSlot}
-              onChange={(e) => setExamSlot(e.target.value)}
+              readOnly
+              tabIndex={-1}
+              onFocus={(e) => e.target.blur()}
               placeholder="Slot One"
               style={{
                 border: '1px solid #e5e7eb',
@@ -122,7 +125,8 @@ const ExaminationDetails: React.FC<ExaminationDetailsProps> = ({
                 padding: '6px 8px',
                 width: '100%',
                 fontSize: '14px',
-                color: examSlot ? '#000' : '#999'
+                color: examSlot ? '#000' : '#999',
+                cursor: 'not-allowed'
               }}
             />
             <div className="absolute right-2 top-1/2 transform -translate-y-1/2 opacity-0 group-focus-within:opacity-100 transition-opacity">

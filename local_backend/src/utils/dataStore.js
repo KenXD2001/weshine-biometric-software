@@ -59,6 +59,7 @@ async function saveCandidates(candidates) {
       centreCode: c.centreCode,
       centreName: c.centreName,
       city: c.city,
+      examDate: c.examDate || '',
       // Timestamps
       imageCaptureTimestamp: c.imageCaptureTimestamp,
       thumbCaptureTimestamp: c.thumbCaptureTimestamp,
@@ -105,6 +106,7 @@ async function saveCentreInfo(centreInfo, candidates = []) {
       centreCode: centreInfo.centreCode || '',
       centreName: centreInfo.centreName || '',
       cityName: centreInfo.cityName || '',
+      examDate: centreInfo.examDate || '',
       examSlot: centreInfo.examSlot || '',
       candidate_counts: {
         total: candidates.length,
@@ -182,6 +184,7 @@ async function saveCandidatesBiometric(candidates) {
       centreCode: c.centreCode,
       centreName: c.centreName,
       city: c.city,
+      examDate: c.examDate || '',
       // Timestamps
       imageCaptureTimestamp: c.imageCaptureTimestamp || null,
       thumbCaptureTimestamp: c.thumbCaptureTimestamp || null,

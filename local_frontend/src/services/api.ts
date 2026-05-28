@@ -49,7 +49,8 @@ type SyncResultData = {
 type CentreInfoData = {
   centreCode: string;
   centreName: string;
-  cityName: string;
+  examDate: string;
+  cityName?: string;
   examSlot: string;
   [key: string]: unknown;
 };
@@ -384,7 +385,7 @@ export const biometricService = {
     }
   },
 
-  submitFaceCapture: async (hallTicket: string, faceData: string, captureTimestamp?: string, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
+  submitFaceCapture: async (applicationNumber: string, faceData: string, captureTimestamp?: string, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-face-capture`, {
         method: 'POST',
@@ -392,7 +393,7 @@ export const biometricService = {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          hallTicket,
+          applicationNumber,
           faceData,
           slot: slot || null,
           userExamApplicationId: userExamApplicationId || null,
@@ -413,7 +414,7 @@ export const biometricService = {
     }
   },
 
-  submitThumbCapture: async (hallTicket: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
+  submitThumbCapture: async (applicationNumber: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-thumb-capture`, {
         method: 'POST',
@@ -421,7 +422,7 @@ export const biometricService = {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          hallTicket,
+          applicationNumber,
           thumbData,
           slot: slot || null,
           userExamApplicationId: userExamApplicationId || null,

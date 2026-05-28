@@ -147,7 +147,7 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
                 <p className="text-sm font-medium text-gray-700">
                   {isDragging ? 'Drop file here' : 'Drag and drop your ZIP file here'}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">or</p>
+                <p className="text-xs text-gray-500 mt-1">Contains: biometric_data.csv, metadata.json, media_manifest.json</p>
               </div>
               <Button
                 variant="secondary"

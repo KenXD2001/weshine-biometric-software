@@ -167,26 +167,32 @@ async function syncBiometricDataToCloud(biometricPayload) {
 // Submit face capture data
 router.post('/submit-face-capture', async (req, res) => {
   try {
-    const { faceData, hallTicket, slot, userExamApplicationId } = req.body;
+    const { faceData, hallTicket, applicationNumber, slot, userExamApplicationId } = req.body;
+    const lookupKey = hallTicket || applicationNumber || userExamApplicationId || '';
     
     logger.info('Submitting face capture', { 
       hallTicket,
+      applicationNumber,
       slot,
       userExamApplicationId,
       ip: req.ip 
     });
 
-    if (!faceData || !hallTicket) {
+    if (!faceData || !lookupKey) {
       return res.status(400).json({
         successful: false,
-        message: 'Face data and hall ticket are required'
+        message: 'Face data and application number are required'
       });
     }
 
     // Update candidate's face status
     const candidatesModule = require('./candidates');
     const candidates = candidatesModule.getCandidates();
-    const candidate = candidates.find(c => c.hallTicket === hallTicket);
+    const normalizedLookup = String(lookupKey).trim().toLowerCase();
+    const candidate = candidates.find((c) => {
+      const candidateKey = String(c.hallTicket || c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
+      return candidateKey === normalizedLookup;
+    });
     
     if (!candidate) {
       return res.status(404).json({
@@ -195,8 +201,8 @@ router.post('/submit-face-capture', async (req, res) => {
       });
     }
 
-    // Save captured face image to disk
-    const capturedImagePath = imageStorage.saveBase64Image(faceData, hallTicket, 'captured');
+    const candidateIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
+    const capturedImagePath = imageStorage.saveBase64Image(faceData, candidateIdentifier, 'captured');
     
     candidate.faceCaptureData = faceData;
     candidate.capturedImagePath = capturedImagePath;
@@ -214,7 +220,7 @@ router.post('/submit-face-capture', async (req, res) => {
     await candidatesModule.saveToDisk();
 
     logger.success('Face capture submitted successfully', { 
-      hallTicket,
+      applicationNumber: candidate.applicationNumber || candidate.hallTicket || candidate.id,
       candidateId: candidate.id,
       submitTimestamp: candidate.submitTimestamp
     });
@@ -223,7 +229,8 @@ router.post('/submit-face-capture', async (req, res) => {
     (async () => {
       try {
         // Reset sync state so manual recapture is uploaded again
-        syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'face', {
+        const syncIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
+        syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'face', {
           synced: false,
           error: null,
           retryCount: 0,
@@ -231,7 +238,8 @@ router.post('/submit-face-capture', async (req, res) => {
         });
         
         const candidateData = {
-          hallTicket,
+          applicationNumber: syncIdentifier,
+          hallTicket: syncIdentifier,
           id: candidate.id,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -278,11 +286,13 @@ router.post('/submit-face-capture', async (req, res) => {
 // Submit thumb capture data
 router.post('/submit-thumb-capture', async (req, res) => {
   try {
-    const { thumbData, hallTicket, slot, userExamApplicationId, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
+    const { thumbData, hallTicket, applicationNumber, slot, userExamApplicationId, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
     const rawDeviceResponse = deviceApiResponse || secugenApiResponse;
+    const lookupKey = hallTicket || applicationNumber || userExamApplicationId || '';
     
     logger.info('Submitting thumb capture', { 
       hallTicket,
+      applicationNumber,
       hasISOTemplate: !!ISOTemplateBase64,
       isoTemplateLength: ISOTemplateBase64 ? ISOTemplateBase64.length : 0,
       hasTemplate: !!TemplateBase64,
@@ -292,17 +302,21 @@ router.post('/submit-thumb-capture', async (req, res) => {
       ip: req.ip 
     });
 
-    if (!thumbData || !hallTicket) {
+    if (!thumbData || !lookupKey) {
       return res.status(400).json({
         successful: false,
-        message: 'Thumb data and hall ticket are required'
+        message: 'Thumb data and application number are required'
       });
     }
 
     // Update candidate's thumb status
     const candidatesModule = require('./candidates');
     const candidates = candidatesModule.getCandidates();
-    const candidate = candidates.find(c => c.hallTicket === hallTicket);
+    const normalizedLookup = String(lookupKey).trim().toLowerCase();
+    const candidate = candidates.find((c) => {
+      const candidateKey = String(c.hallTicket || c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
+      return candidateKey === normalizedLookup;
+    });
     
     if (!candidate) {
       return res.status(404).json({
@@ -311,8 +325,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
       });
     }
 
-    // Save fingerprint image to disk
-    const biometricImagePath = imageStorage.saveBase64Image(thumbData, hallTicket, 'biometric');
+    const candidateIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
+    const biometricImagePath = imageStorage.saveBase64Image(thumbData, candidateIdentifier, 'biometric');
     
     candidate.thumbCaptureData = thumbData;
     candidate.biometricImagePath = biometricImagePath;
@@ -344,7 +358,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
     await candidatesModule.saveToDisk();
 
     logger.success('Thumb capture submitted successfully', { 
-      hallTicket,
+      applicationNumber: candidate.applicationNumber || candidate.hallTicket || candidate.id,
       candidateId: candidate.id,
       hasDeviceResponse: !!rawDeviceResponse,
       responseErrorCode: rawDeviceResponse?.ErrorCode,
@@ -355,7 +369,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
     (async () => {
       try {
         // Reset sync state so manual recapture is uploaded again
-        syncService.syncStateManager.updateSyncStatus(candidate.hallTicket, 'thumb', {
+        const syncIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
+        syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'thumb', {
           synced: false,
           error: null,
           retryCount: 0,
@@ -363,7 +378,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
         });
         
         const candidateData = {
-          hallTicket,
+          applicationNumber: syncIdentifier,
+          hallTicket: syncIdentifier,
           id: candidate.id,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,

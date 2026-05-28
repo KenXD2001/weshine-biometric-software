@@ -25,9 +25,9 @@ const BiometricSoftware: React.FC = () => {
   
   const [centreCode, setCentreCode] = useState(userData?.centreCode || '');
   const [centreName, setCentreName] = useState(userData?.centreName || '');
-  const [cityName, setCityName] = useState(userData?.cityName || '');
+  const [examDate, setExamDate] = useState(userData?.examDate || '');
   const [examSlot, setExamSlot] = useState(userData?.examSlot || '');
-  const [hallTicket, setHallTicket] = useState('');
+  const [applicationNumber, setApplicationNumber] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [email, setEmail] = useState('');
   const [gender, setGender] = useState('');
@@ -60,7 +60,7 @@ const BiometricSoftware: React.FC = () => {
       if (result.successful && result.data) {
         setCentreCode(result.data.centreCode || userData?.centreCode || '');
         setCentreName(result.data.centreName || userData?.centreName || '');
-        setCityName(result.data.cityName || userData?.cityName || '');
+        setExamDate(result.data.examDate || userData?.examDate || '');
         setExamSlot(result.data.examSlot || userData?.examSlot || '');
       }
     } catch (error) {
@@ -126,9 +126,9 @@ const BiometricSoftware: React.FC = () => {
     setIsWebcamActive(newState);
   };
 
-  const handleSubmit = async (submitHallTicket: string) => {
-    if (!submitHallTicket.trim()) {
-      toastWarning('Missing Hall Ticket', 'Please enter a Hall Ticket and load candidate details before submitting.');
+  const handleSubmit = async (submitApplicationNumber: string) => {
+    if (!submitApplicationNumber.trim()) {
+      toastWarning('Missing Application Number', 'Please enter an Application Number and load candidate details before submitting.');
       return;
     }
 
@@ -146,7 +146,7 @@ const BiometricSoftware: React.FC = () => {
       // Submit captured webcam face image (live capture)
       if (capturedImage) {
         faceResult = await biometricService.submitFaceCapture(
-          submitHallTicket,
+          submitApplicationNumber,
           capturedImage,
           undefined,
           candidateSlot || examSlot || undefined,
@@ -159,7 +159,7 @@ const BiometricSoftware: React.FC = () => {
       // Submit captured thumb data (from biometricImagePath)
       if (imagePaths.biometricImagePath && imagePaths.biometricImagePath.startsWith('data:')) {
         thumbResult = await biometricService.submitThumbCapture(
-          submitHallTicket,
+          submitApplicationNumber,
           imagePaths.biometricImagePath,
           thumbTemplate.isoTemplateBase64,
           thumbTemplate.templateBase64,
@@ -199,7 +199,7 @@ const BiometricSoftware: React.FC = () => {
     // Reset everything to allow fresh candidate input / fetch
     console.log('New candidate');
     setIsCandidateLoaded(false);
-    setHallTicket('');
+    setApplicationNumber('');
     setCandidateName('');
     setEmail('');
     setGender('');
@@ -227,9 +227,9 @@ const BiometricSoftware: React.FC = () => {
         window.dispatchEvent(new Event('candidateDataUpdated'));
         setCentreCode('');
         setCentreName('');
-        setCityName('');
+        setExamDate('');
         setExamSlot('');
-        setHallTicket('');
+        setApplicationNumber('');
         setCandidateName('');
         setEmail('');
         setGender('');
@@ -255,13 +255,9 @@ const BiometricSoftware: React.FC = () => {
       <div className="w-[60%] space-y-2">
         <ExaminationDetails
           centreCode={centreCode}
-          setCentreCode={setCentreCode}
           centreName={centreName}
-          setCentreName={setCentreName}
-          cityName={cityName}
-          setCityName={setCityName}
+          examDate={examDate}
           examSlot={examSlot}
-          setExamSlot={setExamSlot}
         />
 
         <BiometricDetails
@@ -282,8 +278,8 @@ const BiometricSoftware: React.FC = () => {
         <SessionDetails />
 
         <CandidateDetails
-          hallTicket={hallTicket}
-          setHallTicket={setHallTicket}
+          applicationNumber={applicationNumber}
+          setApplicationNumber={setApplicationNumber}
           candidateName={candidateName}
           setCandidateName={setCandidateName}
           email={email}

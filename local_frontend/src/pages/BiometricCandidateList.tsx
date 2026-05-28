@@ -6,7 +6,9 @@ import ToastContainer from '../components/Toast/ToastContainer';
 
 interface Candidate {
   id: string;
-  hallTicket: string;
+  applicationNumber?: string;
+  userExamApplicationId?: string;
+  hallTicket?: string;
   candidateName: string;
   emailId: string;
   gender: string;
@@ -66,6 +68,7 @@ const BiometricCandidateList: React.FC = () => {
         // Transform backend data to match our interface
         const transformedCandidates = data.data.map((candidate: Candidate) => ({
           id: candidate.id,
+          applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || '',
           hallTicket: candidate.hallTicket,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -176,10 +179,11 @@ const BiometricCandidateList: React.FC = () => {
     const candidateStatus = (candidate.biometricStatus || '').toLowerCase();
     const term = searchTerm.trim().toLowerCase();
 
+    const applicationNumber = (candidate.applicationNumber || candidate.hallTicket || '').toLowerCase();
     const matchesSearch =
       candidateName.toLowerCase().includes(term) ||
       candidateEmail.toLowerCase().includes(term) ||
-      candidate.hallTicket.toLowerCase().includes(term);
+      applicationNumber.includes(term);
 
     const matchesStatus =
       statusFilter === 'all' || candidateStatus === statusFilter;
@@ -302,11 +306,11 @@ const BiometricCandidateList: React.FC = () => {
       setExportDropdownOpen(false);
 
       if (format === 'csv') {
-        const headers = ['Hall Ticket', 'Candidate', 'Email', 'Gender', 'Signature', 'Photo', 'Captured Photo', 'Captured Thumb', 'Status', 'Image Capture', 'Thumb Capture', 'Submit Time'];
+        const headers = ['Application Number', 'Candidate', 'Email', 'Gender', 'Signature', 'Photo', 'Captured Photo', 'Captured Thumb', 'Status', 'Image Capture', 'Thumb Capture', 'Submit Time'];
         const lines = [headers.join(',')];
         filteredCandidates.forEach(c => {
           const row = [
-            c.hallTicket || '',
+            c.applicationNumber || c.hallTicket || '',
             c.candidateName || '',
             c.emailId || '',
             c.gender || '',
@@ -339,7 +343,7 @@ const BiometricCandidateList: React.FC = () => {
       // PDF export
       const params = new URLSearchParams();
       if (searchTerm.trim()) {
-        params.append('hallTicket', searchTerm);
+        params.append('applicationNumber', searchTerm);
         params.append('candidateName', searchTerm);
       }
       if (statusFilter !== 'all') {
@@ -612,7 +616,7 @@ const BiometricCandidateList: React.FC = () => {
             <thead className="bg-slate-50 border-b border-slate-200">
               <tr>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Hall Ticket
+                  Application Number
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Candidate
@@ -639,10 +643,10 @@ const BiometricCandidateList: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedCandidates.map((candidate) => {
-                console.log('[BiometricCandidateList] candidate row', candidate.hallTicket, candidate.uploadedImagePath, candidate.liveImagePath, candidate.capturedImagePath, candidate.biometricImagePath);
+                console.log('[BiometricCandidateList] candidate row', candidate.applicationNumber || candidate.hallTicket, candidate.uploadedImagePath, candidate.liveImagePath, candidate.capturedImagePath, candidate.biometricImagePath);
                 return (
                   <tr key={candidate.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-3 py-2 text-xs font-medium text-slate-800 align-top">{candidate.hallTicket}</td>
+                    <td className="px-3 py-2 text-xs font-medium text-slate-800 align-top">{candidate.applicationNumber || candidate.hallTicket}</td>
                     <td className="px-3 py-2 text-sm text-slate-900 align-top">
                       <div className="font-medium text-slate-900">{candidate.candidateName}</div>
                       <div className="text-xs text-slate-500">{candidate.emailId}</div>
