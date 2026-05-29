@@ -4,34 +4,21 @@ import { CheckCircle, XCircle, Gauge } from 'lucide-react';
 interface ThumbTemplateStatusProps {
   isCandidateLoaded: boolean;
   templateAvailable: boolean;
-  matchStatus: 'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown';
+  matchRatio?: number | null;
 }
-
-const getStatusLabel = (matchStatus: ThumbTemplateStatusProps['matchStatus']) => {
-  switch (matchStatus) {
-    case 'success':
-      return { label: 'Matched', color: 'text-emerald-700' };
-    case 'failed':
-      return { label: 'Failed', color: 'text-rose-700' };
-    case 'pending':
-      return { label: 'Pending', color: 'text-slate-700' };
-    case 'not-applicable':
-      return { label: 'Not applicable', color: 'text-slate-700' };
-    default:
-      return { label: 'Unknown', color: 'text-slate-700' };
-  }
-};
 
 const ThumbTemplateStatus: React.FC<ThumbTemplateStatusProps> = ({
   isCandidateLoaded,
   templateAvailable,
-  matchStatus,
+  matchRatio,
 }) => {
   if (!isCandidateLoaded) {
     return null;
   }
 
-  const status = getStatusLabel(matchStatus);
+  const ratioLabel = matchRatio !== undefined && matchRatio !== null
+    ? `${matchRatio}%`
+    : 'Not available';
 
   return (
     <div className="bg-white/90 backdrop-blur-sm rounded-xl border border-gray-200/50 shadow-lg shadow-gray-200/25 hover:shadow-xl transition-shadow duration-300">
@@ -69,9 +56,9 @@ const ThumbTemplateStatus: React.FC<ThumbTemplateStatusProps> = ({
 
           <div className="flex items-center gap-3 rounded-xl border border-slate-200/80 bg-slate-50 p-3">
             <div className="flex-1">
-              <div className="text-xs uppercase tracking-wide text-slate-500">Match status</div>
-              <div className={`mt-1 font-semibold ${status.color}`}>
-                {status.label}
+              <div className="text-xs uppercase tracking-wide text-slate-500">Match ratio</div>
+              <div className="mt-1 font-semibold text-slate-900">
+                {ratioLabel}
               </div>
             </div>
             <Gauge className="h-5 w-5 text-slate-500" />

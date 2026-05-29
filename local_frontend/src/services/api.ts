@@ -429,7 +429,7 @@ export const biometricService = {
     }
   },
 
-  submitThumbCapture: async (applicationNumber: string, thumbData?: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
+  submitThumbCapture: async (applicationNumber: string, thumbData?: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string, matchPercentage?: number | null): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-thumb-capture`, {
         method: 'POST',
@@ -444,7 +444,8 @@ export const biometricService = {
           ISOTemplateBase64: isoTemplateBase64 || null,
           TemplateBase64: templateBase64 || null,
           deviceApiResponse: deviceApiResponse || null,
-          captureTimestamp: captureTimestamp || new Date().toISOString()
+          captureTimestamp: captureTimestamp || new Date().toISOString(),
+          matchPercentage: matchPercentage !== undefined ? matchPercentage : null
         })
       });
 

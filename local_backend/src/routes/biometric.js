@@ -143,7 +143,7 @@ router.post('/submit-face-capture', async (req, res) => {
 // Submit thumb capture data
 router.post('/submit-thumb-capture', async (req, res) => {
   try {
-    const { thumbData, hallTicket, applicationNumber, slot, userExamApplicationId, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
+    const { thumbData, hallTicket, applicationNumber, slot, userExamApplicationId, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse, matchPercentage } = req.body;
     const rawDeviceResponse = deviceApiResponse || secugenApiResponse;
     const lookupKey = hallTicket || applicationNumber || userExamApplicationId || '';
     
@@ -217,6 +217,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
     
     // Use provided timestamp if available, else fallback
     candidate.thumbCaptureTimestamp = req.body.captureTimestamp || new Date().toISOString();
+    candidate.matchPercentage = matchPercentage !== undefined && matchPercentage !== null ? Number(matchPercentage) : candidate.matchPercentage || null;
     
     // Update overall biometric status
     if (candidate.faceStatus === 'Completed' && candidate.thumbStatus === 'Completed') {

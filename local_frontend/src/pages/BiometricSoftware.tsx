@@ -52,7 +52,7 @@ const BiometricSoftware: React.FC = () => {
   const [candidateApplicationId, setCandidateApplicationId] = useState('');
   const [thumbTemplate, setThumbTemplate] = useState({ isoTemplateBase64: '', templateBase64: '' });
   const [oldThumbTemplateBase64, setOldThumbTemplateBase64] = useState('');
-  const [matchStatus, setMatchStatus] = useState<'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown'>('unknown');
+  const [matchRatio, setMatchRatio] = useState<number | null>(null);
   const [thumbCaptureTimestamp, setThumbCaptureTimestamp] = useState('');
   const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -174,7 +174,8 @@ const BiometricSoftware: React.FC = () => {
           thumbCaptureTimestamp,
           deviceApiResponse || undefined,
           candidateSlot || examSlot || undefined,
-          candidateApplicationId || undefined
+          candidateApplicationId || undefined,
+          matchRatio
         );
       } else {
         toastInfo('No Thumb Capture', 'No captured or matched thumb data is available yet.');
@@ -219,6 +220,7 @@ const BiometricSoftware: React.FC = () => {
     setCandidateApplicationId('');
     setThumbTemplate({ isoTemplateBase64: '', templateBase64: '' });
     setOldThumbTemplateBase64('');
+    setMatchRatio(null);
     setThumbCaptureTimestamp('');
     setDeviceApiResponse(null);
   };
@@ -278,7 +280,7 @@ const BiometricSoftware: React.FC = () => {
           biometricImagePath={imagePaths.biometricImagePath}
           capturedImage={capturedImage}
           galleryTemplateBase64={oldThumbTemplateBase64}
-          onMatchStatusChange={setMatchStatus}
+          onMatchRatioChange={setMatchRatio}
           handleCapture={handleCapture}
           handleWebcamToggle={handleWebcamToggle}
         />
@@ -286,7 +288,7 @@ const BiometricSoftware: React.FC = () => {
         <ThumbTemplateStatus
           isCandidateLoaded={isCandidateLoaded}
           templateAvailable={templateAvailable}
-          matchStatus={matchStatus}
+          matchRatio={matchRatio}
         />
       </div>
 
@@ -310,7 +312,7 @@ const BiometricSoftware: React.FC = () => {
           setCapturedImage={setCapturedImage}
           setThumbTemplate={setThumbTemplate}
           setOldThumbTemplateBase64={setOldThumbTemplateBase64}
-          setMatchStatus={setMatchStatus}
+          setMatchRatio={setMatchRatio}
           capturedImages={capturedImages}
           onCandidateLoaded={setIsCandidateLoaded}
           onCandidateMetadataLoaded={({ slot, userExamApplicationId }) => {

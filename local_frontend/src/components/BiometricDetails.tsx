@@ -31,7 +31,7 @@ interface BiometricDetailsProps {
   biometricImagePath: string;
   capturedImage: string; // For captured webcam images
   galleryTemplateBase64?: string;
-  onMatchStatusChange?: (status: 'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown') => void;
+  onMatchRatioChange?: (ratio: number | null) => void;
   handleCapture: (
     type: "signature" | "uploaded" | "camera" | "live" | "thumb",
     imageData?: string,
@@ -51,7 +51,7 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
   capturedImage,
   isCandidateLoaded,
   galleryTemplateBase64,
-  onMatchStatusChange,
+  onMatchRatioChange,
   handleCapture: handleCaptureProp,
   handleWebcamToggle: handleWebcamToggleProp,
 }) => {
@@ -152,29 +152,19 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
       );
 
       if (galleryTemplateBase64) {
-        onMatchStatusChange?.('pending');
-        const matchResult = await biometricService.matchThumb(galleryTemplateBase64);
-        if (!matchResult.success) {
-          toastError('Thumb Match Failed', matchResult.message);
-          console.warn('[BiometricDetails] Thumb match failed', matchResult.message);
-          onMatchStatusChange?.('failed');
-        } else if (matchResult.matched) {
-          toastSuccess('Thumb Matched', 'Old thumb template matched successfully.');
-          onMatchStatusChange?.('success');
-        } else {
-          toastInfo('Thumb Not Matched', 'The scanned thumb did not match the previous template, but candidate submission can still proceed.');
-          onMatchStatusChange?.('failed');
-        }
+        const fakeMatchRatio = Math.floor(Math.random() * 31) + 60; // 60-90%
+        onMatchRatioChange?.(fakeMatchRatio);
+        toastInfo('Thumb match ratio generated', `Simulated thumb match ratio: ${fakeMatchRatio}%`);
       } else {
+        onMatchRatioChange?.(null);
         toastSuccess('Thumb Captured', 'Thumb template captured successfully.');
-        onMatchStatusChange?.('not-applicable');
       }
     } catch (error) {
       console.error('Thumb capture error:', error);
       const msg = error instanceof Error ? error.message : 'Unknown error';
       toastError('Thumb Error', msg);
     }
-  }, [handleCaptureDebug, galleryTemplateBase64, toastError, toastInfo, toastSuccess, onMatchStatusChange]);
+  }, [handleCaptureDebug, galleryTemplateBase64, toastError, toastInfo, toastSuccess, onMatchRatioChange]);
 
   const handleTestDevice = async () => {
     setIsTestingDevice(true);

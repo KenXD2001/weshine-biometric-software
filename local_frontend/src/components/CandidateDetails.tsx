@@ -18,7 +18,7 @@ interface CandidateDetailsProps {
   setCapturedImage: (image: string) => void;
   setThumbTemplate: (template: { isoTemplateBase64: string; templateBase64: string }) => void;
   setOldThumbTemplateBase64: (template: string) => void;
-  setMatchStatus: (status: 'success' | 'failed' | 'pending' | 'not-applicable' | 'unknown') => void;
+  setMatchRatio: (ratio: number | null) => void;
   onCandidateLoaded: (loaded: boolean) => void;
   onSubmit: (applicationNumber: string) => void;
   isSubmitting: boolean;
@@ -49,7 +49,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   setCapturedImage,
   setThumbTemplate,
   setOldThumbTemplateBase64,
-  setMatchStatus,
+  setMatchRatio,
   capturedImages,
   isSubmitting,
 }) => {
@@ -140,7 +140,10 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
         });
         const oldTemplateValue = String(candidate.previousTemplateBase64 || candidate.previousISOTemplateBase64 || '');
         setOldThumbTemplateBase64(oldTemplateValue);
-        setMatchStatus(oldTemplateValue ? 'unknown' : 'not-applicable');
+        const matchPercentage = candidate.matchPercentage !== undefined && candidate.matchPercentage !== null
+          ? Number(candidate.matchPercentage)
+          : null;
+        setMatchRatio(Number.isFinite(matchPercentage) ? matchPercentage : null);
 
         onCandidateLoaded(true);
         onCandidateMetadataLoaded({
