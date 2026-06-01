@@ -1,7 +1,6 @@
-import React, { useState, useCallback, useRef } from 'react';
-import { Check, Play, Square, RefreshCw, AlertCircle, ImageUp, ImageDown, Signature, Fingerprint, Webcam } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Check, RefreshCw, AlertCircle, Signature, Fingerprint, Image } from 'lucide-react';
 import Button from './ui/Button';
-import WebcamComponent from './Webcam';
 import { biometricService } from "../services/api";
 
 type BiometricDeviceApiResponse = {
@@ -19,43 +18,34 @@ interface BiometricDetailsProps {
   capturedImages: {
     signature: boolean;
     uploaded: boolean;
-    camera: boolean;
-    live: boolean;
     thumb: boolean;
   };
-  isWebcamActive: boolean;
   isCandidateLoaded: boolean;
-  uploadedImagePath: string; // This is the signature image (signature.jpg)
-  liveImagePath: string; // This is the candidate photo (photo.jpg)
+  uploadedImagePath: string; // Candidate uploaded photo path
+  signatureImagePath: string; // Candidate signature image path
   biometricImagePath: string;
-  capturedImage: string; // For captured webcam images
   handleCapture: (
-    type: "signature" | "uploaded" | "camera" | "live" | "thumb",
+    type: "signature" | "uploaded" | "thumb",
     imageData?: string,
     templateData?: { isoTemplateBase64?: string; templateBase64?: string },
     captureTimestamp?: string,
     deviceApiResponse?: BiometricDeviceApiResponse
   ) => void;
-  handleWebcamToggle: () => void;
 }
 
 const BiometricDetails: React.FC<BiometricDetailsProps> = ({
   capturedImages,
-  isWebcamActive,
   uploadedImagePath,
-  liveImagePath,
+  signatureImagePath,
   biometricImagePath,
-  capturedImage,
   isCandidateLoaded,
   handleCapture: handleCaptureProp,
-  handleWebcamToggle: handleWebcamToggleProp,
 }) => {
   const [isTestingDevice, setIsTestingDevice] = useState(false);
   const [deviceStatus, setDeviceStatus] = useState<{
     connected: boolean;
     message: string;
   } | null>(null);
-  const webcamCaptureRef = useRef<(() => void) | null>(null);
 
   const resolveApiAsset = (path: string) => {
     if (!path) return '';
@@ -89,15 +79,14 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
     return `${baseUrl}/api/upload/images${normalizedPath}`;
   };
 
-  const uploadedImageUrl = resolveApiAsset(uploadedImagePath); // This is the signature image (signature.jpg)
-  const liveImageUrl = resolveApiAsset(liveImagePath); // This is the candidate photo (photo.jpg)
+  const uploadedPhotoUrl = resolveApiAsset(uploadedImagePath);
+  const signatureImageUrl = resolveApiAsset(signatureImagePath);
   // Check if biometricImagePath contains base64 data (for thumb captures)
   const biometricImageUrl = biometricImagePath.startsWith('data:') ? biometricImagePath : resolveApiAsset(biometricImagePath);
-  const capturedImageUrl = capturedImage.startsWith('data:') ? capturedImage : resolveApiAsset(capturedImage);
 
   const handleCaptureDebug = useCallback(
     (
-      type: "signature" | "uploaded" | "camera" | "live" | "thumb",
+      type: "signature" | "uploaded" | "thumb",
       imageData?: string,
       templateData?: { isoTemplateBase64?: string; templateBase64?: string },
       captureTimestamp?: string,
@@ -107,16 +96,6 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
     },
     [handleCaptureProp]
   );
-
-  const handleWebcamToggleDebug = useCallback(() => {
-    handleWebcamToggleProp();
-  }, [handleWebcamToggleProp]);
-
-  const handleWebcamCapture = useCallback(() => {
-    if (webcamCaptureRef.current) {
-      webcamCaptureRef.current();
-    }
-  }, []);
 
   const handleThumbCapture = useCallback(async () => {
     try {
@@ -175,8 +154,31 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
         </h2>
       </div>
 
-      {/* 5 Grid Column */}
-      <div className="grid grid-cols-5 gap-2 p-3 pt-0 rounded-b-xl">
+      {/* 3 Grid Column */}
+      <div className="grid grid-cols-3 gap-2 p-3 pt-0 rounded-b-xl">
+        {/* Uploaded Photo */}
+        <div className="flex flex-col items-center">
+          <div className="w-full bg-slate-100 rounded-xl px-2 py-3 transition-all duration-300">
+            <span className="text-xs text-gray-800 text-center font-bold uppercase mb-2 block">
+              Uploaded Photo
+            </span>
+            <div
+              className={`aspect-square w-full rounded-lg flex items-center justify-center transition-all duration-300 ${
+                uploadedPhotoUrl
+                  ? "bg-white border-2 border-slate-300 shadow-lg"
+                  : "bg-white border-2 border-dashed border-gray-300 hover:border-gray-400"
+              }`}
+            >
+              {uploadedPhotoUrl ? (
+                <img src={uploadedPhotoUrl} alt="Uploaded Photo" className="h-full w-full object-contain rounded-lg" />
+              ) : capturedImages.uploaded ? (
+                <Check className="h-20 w-20 text-white" />
+              ) : (
+                <Image className="h-20 w-20 text-gray-400" />
+              )}
+            </div>
+          </div>
+        </div>
         {/* Signature */}
         <div className="flex flex-col items-center">
           <div className="w-full bg-blue-100 rounded-xl px-2 py-3 transition-all duration-300">
@@ -185,13 +187,13 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
             </span>
             <div
               className={`aspect-square w-full rounded-lg flex items-center justify-center transition-all duration-300 ${
-                uploadedImageUrl
+                signatureImageUrl
                   ? "bg-white border-2 border-blue-300 shadow-lg"
                   : "bg-white border-2 border-dashed border-gray-300 hover:border-gray-400"
               }`}
             >
-              {uploadedImageUrl ? (
-                <img src={uploadedImageUrl} alt="Signature" className="h-full w-full object-contain rounded-lg" />
+              {signatureImageUrl ? (
+                <img src={signatureImageUrl} alt="Signature" className="h-full w-full object-contain rounded-lg" />
               ) : capturedImages.signature ? (
                 <Check className="h-20 w-20 text-white" />
               ) : (
@@ -225,125 +227,6 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
             </div>
           )}
         </div>
-
-        {/* Uploaded Image */}
-        <div className="flex flex-col items-center">
-          <div className="w-full bg-yellow-100 rounded-xl px-2 py-3 transition-all duration-300">
-            <span className="text-xs text-gray-800 text-center font-bold uppercase mb-2 block">
-              Uploaded Image
-            </span>
-            <div
-              className={`aspect-square w-full rounded-lg flex items-center justify-center transition-all duration-300 ${
-                liveImageUrl
-                  ? "bg-white border-2 border-yellow-300 shadow-lg"
-                  : "bg-white border-2 border-dashed border-gray-300 hover:border-gray-400"
-              }`}
-            >
-              {liveImageUrl ? (
-                <img src={liveImageUrl} alt="Candidate Photo" className="h-full w-full object-contain rounded-lg" />
-              ) : capturedImages.uploaded ? (
-                <Check className="h-20 w-20 text-white" />
-              ) : (
-                <ImageUp className="h-20 w-20 text-gray-400" />
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Camera View */}
-        <div className="flex flex-col items-center">
-          <div className="w-full bg-pink-100 rounded-xl px-2 py-3 transition-all duration-300">
-            <span className="text-xs text-gray-800 text-center font-bold uppercase mb-2 block">
-              Camera View
-            </span>
-            <div
-              className={`aspect-square w-full rounded-lg overflow-hidden transition-all duration-300 ${
-                isWebcamActive
-                  ? "bg-gray-900 border-2 border-pink-300 shadow-lg"
-                  : "bg-white border-2 border-dashed border-gray-300 hover:border-gray-400"
-              }`}
-            >
-              {isWebcamActive ? (
-                <WebcamComponent
-                  isActive={isWebcamActive}
-                  onCapture={(imageDataUrl) => {
-                    // Handle webcam capture for live image
-                    handleCaptureDebug('live', imageDataUrl);
-                  }}
-                  captureRef={webcamCaptureRef}
-                />
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full">
-                  <Webcam className="h-20 w-20 text-gray-400 mb-2" />
-                  <span className="text-gray-400 text-xs">Camera Off</span>
-                </div>
-              )}
-            </div>
-          </div>
-          <Button
-            onClick={handleWebcamToggleDebug}
-            variant={isWebcamActive ? "danger" : "primary"}
-            size="sm"
-            fullWidth
-            className="mt-3"
-          >
-            {isWebcamActive ? (
-              <>
-                <Square className="h-3.5 w-3.5" />
-                Stop Webcam
-              </>
-            ) : (
-              <>
-                <Play className="h-3.5 w-3.5" />
-                Start Webcam
-              </>
-            )}
-          </Button>
-        </div>
-
-        {/* Captured Image */}
-        <div className="flex flex-col items-center">
-          <div className="w-full bg-green-100 rounded-xl px-2 py-3 transition-all duration-300">
-            <span className="text-xs text-gray-800 text-center font-bold uppercase mb-2 block">
-              Captured Image
-            </span>
-            <div
-              className={`aspect-square w-full rounded-lg flex items-center justify-center transition-all duration-300 ${
-                capturedImages.live && capturedImage
-                  ? "bg-white border-2 border-green-300 shadow-lg"
-                  : "bg-white border-2 border-dashed border-gray-300 hover:border-gray-400"
-              }`}
-            >
-              {capturedImages.live && capturedImage ? (
-                <img src={capturedImageUrl} alt="Captured" className="h-full w-full object-contain rounded-lg" />
-              ) : capturedImages.live ? (
-                <Check className="h-20 w-20 text-white" />
-              ) : (
-                <ImageDown className="h-20 w-20 text-gray-400" />
-              )}
-            </div>
-          </div>
-          <Button
-            onClick={() => {
-              console.log('[BiometricDetails] Capture Image click', {
-                isCandidateLoaded,
-                isWebcamActive,
-                capturedImages,
-                deviceStatus,
-              });
-              handleWebcamCapture();
-            }}
-            variant="primary"
-            size="sm"
-            fullWidth
-            className="mt-3"
-            disabled={!isCandidateLoaded || !isWebcamActive}
-          >
-            <ImageDown className="h-3.5 w-3.5" />
-            Capture Image
-          </Button>
-        </div>
-
         {/* Captured Thumb */}
         <div className="flex flex-col items-center">
           <div className="w-full bg-purple-100 rounded-xl px-2 py-3 transition-all duration-300">
@@ -368,9 +251,7 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
             onClick={() => {
               console.log('[BiometricDetails] Capture Thumb click', {
                 isCandidateLoaded,
-                isWebcamActive,
                 deviceStatus,
-                capturedImages,
                 biometricImagePath,
               });
               handleThumbCapture();
@@ -379,7 +260,7 @@ const BiometricDetails: React.FC<BiometricDetailsProps> = ({
             size="sm"
             fullWidth
             className="mt-3"
-            disabled={!(deviceStatus?.connected && capturedImages.live && isCandidateLoaded)}
+            disabled={!(deviceStatus?.connected && isCandidateLoaded)}
           >
             <Fingerprint className="h-3.5 w-3.5" />
             Capture Thumb

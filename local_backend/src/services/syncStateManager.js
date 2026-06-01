@@ -14,7 +14,8 @@ class SyncStateManager {
     try {
       if (fs.existsSync(this.syncStatePath)) {
         const data = fs.readFileSync(this.syncStatePath, 'utf8');
-        return JSON.parse(data);
+        const parsed = JSON.parse(data);
+        return this.migrateLegacySyncState(parsed);
       } else {
         // Initialize new sync state
         return this.initializeSyncState();
@@ -73,19 +74,19 @@ class SyncStateManager {
   }
 
   // Update sync status for a specific candidate and biometric type
-  updateSyncStatus(hallTicket, biometricType, updateData) {
-    const syncId = updateData.syncId || `sync_${Date.now()}_${hallTicket}_${biometricType}`;
+  updateSyncStatus(candidateKey, biometricType, updateData) {
+    const syncId = updateData.syncId || `sync_${Date.now()}_${candidateKey}_${biometricType}`;
     
     // Initialize candidate sync status if not exists
-    if (!this.syncState.syncStatus[hallTicket]) {
-      this.syncState.syncStatus[hallTicket] = {};
+    if (!this.syncState.syncStatus[candidateKey]) {
+      this.syncState.syncStatus[candidateKey] = {};
     }
     
     // Update biometric type status
-    const existingStatus = this.syncState.syncStatus[hallTicket][biometricType] || {};
-    this.syncState.syncStatus[hallTicket][biometricType] = {
-      syncId: updateData.syncId || existingStatus.syncId || `sync_${Date.now()}_${hallTicket}_${biometricType}`,
-      hallTicket,
+    const existingStatus = this.syncState.syncStatus[candidateKey][biometricType] || {};
+    this.syncState.syncStatus[candidateKey][biometricType] = {
+      syncId: updateData.syncId || existingStatus.syncId || `sync_${Date.now()}_${candidateKey}_${biometricType}`,
+      applicationNumber: candidateKey,
       biometricType,
       localPath: updateData.localPath !== undefined ? updateData.localPath : existingStatus.localPath || null,
       synced: updateData.synced !== undefined ? updateData.synced : existingStatus.synced || false,
@@ -104,14 +105,14 @@ class SyncStateManager {
     this.saveSyncState();
     
     logger.info('Sync status updated', {
-      hallTicket,
+      applicationNumber: candidateKey,
       biometricType,
       synced: updateData.synced,
       error: updateData.error,
       retryCount: updateData.retryCount
     });
     
-    return this.syncState.syncStatus[hallTicket][biometricType];
+    return this.syncState.syncStatus[candidateKey][biometricType];
   }
 
   // Update pending and failed sync lists
@@ -119,12 +120,12 @@ class SyncStateManager {
     const pending = [];
     const failed = [];
     
-    Object.entries(this.syncState.syncStatus).forEach(([hallTicket, biometrics]) => {
+    Object.entries(this.syncState.syncStatus).forEach(([candidateKey, biometrics]) => {
       Object.entries(biometrics).forEach(([biometricType, status]) => {
         if (!status.synced) {
           if (status.error && status.retryCount >= 3) {
             failed.push({
-              hallTicket,
+              applicationNumber: candidateKey,
               biometricType,
               error: status.error,
               retryCount: status.retryCount,
@@ -132,7 +133,7 @@ class SyncStateManager {
             });
           } else {
             pending.push({
-              hallTicket,
+              applicationNumber: candidateKey,
               biometricType,
               retryCount: status.retryCount,
               lastAttempt: status.lastAttempt
@@ -178,10 +179,10 @@ class SyncStateManager {
   }
 
   // Get sync status for specific candidate
-  getCandidateSyncStatus(hallTicket) {
+  getCandidateSyncStatus(candidateKey) {
     // Reload state from disk to get latest data
     this.syncState = this.loadSyncState();
-    return this.syncState.syncStatus[hallTicket] || null;
+    return this.syncState.syncStatus[candidateKey] || null;
   }
 
   // Get overall sync status
@@ -199,8 +200,8 @@ class SyncStateManager {
   }
 
   // Mark item as synced
-  markAsSynced(hallTicket, biometricType, cloudId) {
-    return this.updateSyncStatus(hallTicket, biometricType, {
+  markAsSynced(candidateKey, biometricType, cloudId) {
+    return this.updateSyncStatus(candidateKey, biometricType, {
       synced: true,
       cloudId,
       syncedAt: new Date().toISOString(),
@@ -209,11 +210,11 @@ class SyncStateManager {
   }
 
   // Mark item as failed
-  markAsFailed(hallTicket, biometricType, error) {
-    const currentStatus = this.syncState.syncStatus[hallTicket]?.[biometricType];
+  markAsFailed(candidateKey, biometricType, error) {
+    const currentStatus = this.syncState.syncStatus[candidateKey]?.[biometricType];
     const retryCount = (currentStatus?.retryCount || 0) + 1;
     
-    return this.updateSyncStatus(hallTicket, biometricType, {
+    return this.updateSyncStatus(candidateKey, biometricType, {
       synced: false,
       error,
       retryCount,
@@ -222,8 +223,8 @@ class SyncStateManager {
   }
 
   // Reset retry count for retry mechanism
-  resetRetryCount(hallTicket, biometricType) {
-    return this.updateSyncStatus(hallTicket, biometricType, {
+  resetRetryCount(candidateKey, biometricType) {
+    return this.updateSyncStatus(candidateKey, biometricType, {
       retryCount: 0,
       error: null,
       lastAttempt: new Date().toISOString()
@@ -234,6 +235,48 @@ class SyncStateManager {
   updateLastSyncTimestamp() {
     this.syncState.lastSyncTimestamp = new Date().toISOString();
     this.saveSyncState();
+  }
+
+  // Migrate legacy sync state records from hallTicket to applicationNumber
+  migrateLegacySyncState(state) {
+    if (!state || typeof state !== 'object' || !state.syncStatus) {
+      return state;
+    }
+
+    const syncStatus = state.syncStatus;
+    const migratedStatus = {};
+
+    Object.entries(syncStatus).forEach(([candidateKey, biometrics]) => {
+      const migratedBiometrics = {};
+      Object.entries(biometrics).forEach(([biometricType, status]) => {
+        if (status && typeof status === 'object') {
+          if (status.hallTicket) {
+            status.applicationNumber = status.hallTicket;
+            delete status.hallTicket;
+          }
+        }
+        migratedBiometrics[biometricType] = status;
+      });
+      migratedStatus[candidateKey] = migratedBiometrics;
+    });
+
+    state.syncStatus = migratedStatus;
+    state.pendingSync = (state.pendingSync || []).map((item) => {
+      if (item && item.hallTicket) {
+        item.applicationNumber = item.hallTicket;
+        delete item.hallTicket;
+      }
+      return item;
+    });
+    state.failedSync = (state.failedSync || []).map((item) => {
+      if (item && item.hallTicket) {
+        item.applicationNumber = item.hallTicket;
+        delete item.hallTicket;
+      }
+      return item;
+    });
+
+    return state;
   }
 
   // Get sync statistics
@@ -247,7 +290,7 @@ class SyncStateManager {
       recentActivity: []
     };
     
-    Object.entries(this.syncState.syncStatus).forEach(([hallTicket, biometrics]) => {
+    Object.entries(this.syncState.syncStatus).forEach(([candidateKey, biometrics]) => {
       Object.entries(biometrics).forEach(([biometricType, status]) => {
         // Update biometric type stats
         if (status.synced) {
@@ -267,7 +310,7 @@ class SyncStateManager {
         const hoursAgo = (Date.now() - createdAt.getTime()) / (1000 * 60 * 60);
         if (hoursAgo <= 24) {
           stats.recentActivity.push({
-            hallTicket,
+            applicationNumber: candidateKey,
             biometricType,
             synced: status.synced,
             createdAt: status.createdAt

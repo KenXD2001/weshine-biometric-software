@@ -60,7 +60,7 @@ class SyncService {
 
   // Sync biometric data to cloud with confirmation
   async syncBiometricData(candidateData, biometricType, options = {}) {
-    const candidateKey = candidateData.applicationNumber || candidateData.userExamApplicationId || candidateData.id || candidateData.hallTicket || '';
+    const candidateKey = candidateData.applicationNumber || candidateData.userExamApplicationId || candidateData.id || '';
     const syncId = this.generateSyncId(candidateKey, biometricType);
     const startTime = Date.now();
     let imageFilePath = null; // Declare at function scope
@@ -194,15 +194,42 @@ class SyncService {
         examSlot: candidateData.examSlot || '',
         examId: candidateData.examId || '',
         userExamApplicationId: candidateData.userExamApplicationId || candidateKey,
-        TemplateBase64: candidateData.TemplateBase64 || null
+        ISOTemplateBase64: candidateData.capturedThumbIsoTemplate || candidateData.ISOTemplateBase64 || null,
+        TemplateBase64: candidateData.capturedThumbAnsiTemplate || candidateData.TemplateBase64 || null
       };
       
+      logger.info('Outgoing biometric sync metadata', {
+        syncId,
+        applicationNumber: candidateKey,
+        biometricType,
+        hasISOTemplate: !!metadata.ISOTemplateBase64,
+        hasTemplate: !!metadata.TemplateBase64,
+        capturedThumbIsoTemplate: !!candidateData.capturedThumbIsoTemplate,
+        capturedThumbAnsiTemplate: !!candidateData.capturedThumbAnsiTemplate,
+        localImagePath: imageFilePath
+      });
+
       formData.append('metadata', JSON.stringify(metadata));
 
       // Add image file if available
       if (imageFilePath && fs.existsSync(imageFilePath)) {
         formData.append('biometricImage', fs.createReadStream(imageFilePath));
       }
+
+      logger.info('Sending biometric sync request to cloud', {
+        syncId,
+        applicationNumber: candidateKey,
+        biometricType,
+        cloudBackendUrl: this.cloudBackendUrl,
+        metadata: {
+          ISOTemplateBase64Length: metadata.ISOTemplateBase64 ? metadata.ISOTemplateBase64.length : 0,
+          TemplateBase64Length: metadata.TemplateBase64 ? metadata.TemplateBase64.length : 0,
+          hasISOTemplate: !!metadata.ISOTemplateBase64,
+          hasTemplate: !!metadata.TemplateBase64,
+          hasBiometricImage: !!(imageFilePath && fs.existsSync(imageFilePath)),
+          localImagePath: imageFilePath
+        }
+      });
 
       // Send to cloud backend
       const response = await axios.post(
@@ -215,23 +242,29 @@ class SyncService {
         }
       );
 
+      logger.info('Received biometric sync response from cloud', {
+        syncId,
+        applicationNumber: candidateKey,
+        biometricType,
+        status: response.status,
+        responseData: response.data
+      });
+
       const processingTime = Date.now() - startTime;
 
       if (response.data && response.data.success) {
-        // Validate cloudId before marking as synced
-        if (!response.data.cloudId) {
-          throw new Error('Cloud sync returned success but no cloudId provided');
-        }
+        const resolvedCloudId = response.data.cloudId || response.data.templateRecord?.id || null;
         
         // Success - update sync state
-        this.syncStateManager.markAsSynced(candidateKey, biometricType, response.data.cloudId);
+        this.syncStateManager.markAsSynced(candidateKey, biometricType, resolvedCloudId);
         this.syncStateManager.updateLastSyncTimestamp();
 
         logger.success('Biometric sync completed', {
           syncId,
           applicationNumber: candidateKey,
           biometricType,
-          cloudId: response.data.cloudId,
+          cloudId: resolvedCloudId,
+          templateRecordId: response.data.templateRecord?.id,
           processingTime,
           s3Urls: response.data.s3Urls
         });
@@ -239,7 +272,8 @@ class SyncService {
         return {
           success: true,
           syncId,
-          cloudId: response.data.cloudId,
+          cloudId: resolvedCloudId,
+          templateRecord: response.data.templateRecord || null,
           s3Urls: response.data.s3Urls,
           processingTime
         };
@@ -318,7 +352,7 @@ class SyncService {
 
     // Retry pending items (those not yet synced). We only attempt items whose retryCount < maxRetries
     for (const item of pendingItems) {
-      const candidateKey = String(item.applicationNumber || item.hallTicket || '').trim();
+      const candidateKey = String(item.applicationNumber || '').trim();
       if (item.retryCount >= this.maxRetries) {
         logger.warn('Item reached max retries, skipping until marked failed', {
           applicationNumber: candidateKey,
@@ -391,13 +425,13 @@ class SyncService {
       const candidates = candidatesModule.getCandidates();
       const normalizedKey = String(candidateKey || '').trim().toLowerCase();
       const candidate = candidates.find((c) => {
-        const candidateLookupKey = String(c.applicationNumber || c.userExamApplicationId || c.id || c.hallTicket || '').trim().toLowerCase();
+        const candidateLookupKey = String(c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
         return candidateLookupKey === normalizedKey;
       });
       
       if (candidate) {
         return {
-          applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '',
+          applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '',
           id: candidate.id,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -408,12 +442,12 @@ class SyncService {
           examSlot: candidate.examSlot,
           slot: candidate.slot || candidate.examSlot || '',
           examId: candidate.examId,
-          userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || candidate.hallTicket || '',
+          userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || '',
           timestamp: candidate.timestamp,
-          faceData: candidate.faceCaptureData,
-          thumbData: candidate.thumbCaptureData,
-          ISOTemplateBase64: candidate.ISOTemplateBase64,
-          TemplateBase64: candidate.TemplateBase64
+          thumbData: candidate.thumbCaptureData || null,
+          ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
+          TemplateBase64: candidate.TemplateBase64 || null,
+          localImagePath: candidate.biometricImagePath || null
         };
       }
       
@@ -434,24 +468,10 @@ class SyncService {
       if (!Array.isArray(candidates) || candidates.length === 0) return;
 
       for (const candidate of candidates) {
-        const candidateKey = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || candidate.hallTicket || '').trim();
+        const candidateKey = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '').trim();
         if (!candidateKey) continue;
 
         const syncStatus = this.syncStateManager.getCandidateSyncStatus(candidateKey) || {};
-
-        // Enqueue face sync if local face is complete but cloud record is missing
-        if (candidate.faceStatus === 'Completed' && !candidate.cloudFaceId) {
-          const faceStatus = syncStatus.face || {};
-          if (!faceStatus.synced) {
-            this.syncStateManager.updateSyncStatus(candidateKey, 'face', {
-              localPath: candidate.capturedImagePath || faceStatus.localPath || null,
-              synced: false,
-              error: null,
-              retryCount: faceStatus.retryCount || 0,
-              syncId: faceStatus.syncId
-            });
-          }
-        }
 
         // Enqueue thumb sync if local thumb is complete but cloud record is missing
         if (candidate.thumbStatus === 'Completed' && !candidate.cloudThumbId) {
@@ -500,7 +520,7 @@ class SyncService {
     const results = [];
 
     for (const item of pendingItems) {
-      const candidateKey = String(item.applicationNumber || item.hallTicket || '').trim();
+      const candidateKey = String(item.applicationNumber || '').trim();
       const candidateData = await this.getCandidateData(candidateKey);
       if (candidateData) {
         // Add image path from sync state

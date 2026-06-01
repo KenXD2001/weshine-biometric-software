@@ -177,43 +177,42 @@ const buildCandidateTableRows = (candidateList) => {
   logger.info('Building candidate table rows', { candidateCount: candidateList.length });
 
   const rowsHtml = candidateList.map((c, index) => {
-    const signatureUrl = resolveImageUrl(c.uploadedImagePath || c.liveImagePath);
-    const photoUrl = resolveImageUrl(c.liveImagePath || c.uploadedImagePath);
-    const capturedPhotoUrl = resolveImageUrl(c.capturedImagePath);
+    const signatureUrl = resolveImageUrl(c.liveImagePath);
+    const photoUrl = resolveImageUrl(c.uploadedImagePath);
     const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
 
     const hasSignature = !!signatureUrl;
     const hasPhoto = !!photoUrl;
-    const hasCapturedPhoto = !!capturedPhotoUrl;
     const hasCapturedThumb = !!capturedThumbUrl;
 
     // Format timestamps for display (one per line as in original)
-    const imageTime = convertUtcToIST(c.imageCaptureTimestamp);
     const thumbTime = convertUtcToIST(c.thumbCaptureTimestamp);
     const submitTime = convertUtcToIST(c.submitTimestamp);
     
     // Build timestamp string with line breaks
-    const timestamps = [imageTime, thumbTime, submitTime]
+    const timestamps = [thumbTime, submitTime]
       .filter(t => t !== '-')
       .join('\n');
 
     logger.debug('Processing candidate for PDF', { 
       index, 
-      hallTicket: c.hallTicket,
+      applicationNumber: c.applicationNumber,
       hasSignature,
       hasPhoto,
-      hasCapturedPhoto,
       hasCapturedThumb
     });
 
+    const statusLabel = escapeHtml(c.biometricStatus || '-');
+    const emailLine = escapeHtml(c.emailId || '-');
+
     return `
       <tr style="page-break-inside: avoid;">
-        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.hallTicket || '-')}</td>
-        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.candidateName || '-')}</td>
+        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.applicationNumber || '-')}</td>
+        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.candidateName || '-')}<br/><span style="font-size:0.85rem; color:#4b5563;">${emailLine}</span></td>
         <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasSignature ? imgTag(signatureUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
         <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasPhoto ? imgTag(photoUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
-        <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasCapturedPhoto ? imgTag(capturedPhotoUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
         <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasCapturedThumb ? imgTag(capturedThumbUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
+        <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${statusLabel}</td>
         <td style="vertical-align: top; padding: 10px; white-space: pre-line; font-size: 0.85rem; color: #4b5563; line-height: 1.4;">${escapeHtml(timestamps) || '-'}</td>
       </tr>
     `;
@@ -511,12 +510,12 @@ const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
 
       <div class="hero-meta">
         <div class="meta-card">
-          <strong>Centre</strong>
-          <span>{{centerName}}</span>
+          <strong>Centre Code</strong>
+          <span>{{centerCode}}</span>
         </div>
         <div class="meta-card">
-          <strong>City</strong>
-          <span>{{cityName}}</span>
+          <strong>Centre Name</strong>
+          <span>{{centerName}}</span>
         </div>
         <div class="meta-card">
           <strong>Exam slot</strong>
@@ -542,13 +541,13 @@ const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
         </colgroup>
         <thead>
           <tr>
-            <th>Hall Ticket</th>
-            <th>Candidate Name</th>
-            <th>Signature</th>
-            <th>Photo</th>
-            <th>Captured Photo</th>
+            <th>Application Number</th>
+            <th>Candidate Name / Email</th>
+            <th>Uploaded Signature</th>
+            <th>Uploaded Photo</th>
             <th>Captured Thumb</th>
-            <th>Capture Timing</th>
+            <th>Status</th>
+            <th>Thumb & Submit Timing</th>
           </tr>
         </thead>
         <tbody id="reportBody">
@@ -783,23 +782,21 @@ const createTextOnlyPdf = (candidateList) => {
     doc.text('Review the uploaded candidate data, image captures, and biometric status in a printable report format.', doc.internal.pageSize.getWidth() / 2, 18, { align: 'center' });
 
     const tableData = candidateList.map(c => {
-      const signatureUrl = resolveImageUrl(c.uploadedImagePath || c.liveImagePath);
-      const photoUrl = resolveImageUrl(c.liveImagePath || c.uploadedImagePath);
-      const capturedPhotoUrl = resolveImageUrl(c.capturedImagePath);
+      const signatureUrl = resolveImageUrl(c.liveImagePath);
+      const photoUrl = resolveImageUrl(c.uploadedImagePath);
       const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
       const timestamps = [
-        convertUtcToIST(c.imageCaptureTimestamp),
         convertUtcToIST(c.thumbCaptureTimestamp),
         convertUtcToIST(c.submitTimestamp)
       ].filter(t => t !== '-').join('\n');
 
       return [
-        c.hallTicket || '-',
-        c.candidateName || '-',
+        c.applicationNumber || '-',
+        `${c.candidateName || '-'}\n${c.emailId || '-'}`,
         signatureUrl ? '[Img]' : '-',
         photoUrl ? '[Img]' : '-',
-        capturedPhotoUrl ? '[Img]' : '-',
         capturedThumbUrl ? '[Img]' : '-',
+        c.biometricStatus || '-',
         timestamps || '-',
       ];
     });
@@ -816,13 +813,13 @@ const createTextOnlyPdf = (candidateList) => {
 
     autoTable(doc, {
       head: [[
-        'Hall Ticket',
-        'Candidate Name',
-        'Signature',
-        'Photo',
-        'Captured Photo',
+        'Application Number',
+        'Candidate Name / Email',
+        'Uploaded Signature',
+        'Uploaded Photo',
         'Captured Thumb',
-        'Capture Timing'
+        'Status',
+        'Thumb & Submit Timing'
       ]],
       body: tableData,
       startY: 24,
@@ -836,25 +833,23 @@ const createTextOnlyPdf = (candidateList) => {
         2: { halign: 'center', cellWidth: 35 },
         3: { halign: 'center', cellWidth: 35 },
         4: { halign: 'center', cellWidth: 35 },
-        5: { halign: 'center', cellWidth: 35 },
       },
       didDrawCell: function(data) {
         const { cell, column, row, section } = data;
-        if (section === 'body' && [2, 3, 4, 5].includes(column.index)) {
+        if (section === 'body' && [2, 3, 4].includes(column.index)) {
           const candidate = candidateList[row.index];
           if (!candidate) return;
           let imgUrl = null;
-          if (column.index === 2) imgUrl = resolveImageUrl(candidate.uploadedImagePath || candidate.liveImagePath);
-          if (column.index === 3) imgUrl = resolveImageUrl(candidate.liveImagePath || candidate.uploadedImagePath);
-          if (column.index === 4) imgUrl = resolveImageUrl(candidate.capturedImagePath);
-          if (column.index === 5) imgUrl = resolveImageUrl(candidate.biometricImagePath);
+          if (column.index === 2) imgUrl = resolveImageUrl(candidate.liveImagePath);
+          if (column.index === 3) imgUrl = resolveImageUrl(candidate.uploadedImagePath);
+          if (column.index === 4) imgUrl = resolveImageUrl(candidate.biometricImagePath);
           if (imgUrl && imgUrl.startsWith('data:')) {
             try {
               const { x, y, width, height } = cell;
               const imageHeight = Math.max(height - 2, 30);
               const imageWidth = Math.min(width - 2, 25);
               doc.addImage(imgUrl, 'JPEG', x + 1, y + 1, imageWidth, imageHeight);
-              logger.debug('Added image to PDF cell', { cellHeight: height, imageHeight, imageWidth, hallTicket: candidateList[row.index]?.hallTicket });
+              logger.debug('Added image to PDF cell', { cellHeight: height, imageHeight, imageWidth, applicationNumber: candidateList[row.index]?.applicationNumber });
             } catch (imgErr) {
               logger.debug('Could not embed image in PDF cell', { error: imgErr.message });
             }
@@ -946,16 +941,16 @@ const createBiometricPdf = async (candidateList, context = {}) => {
     });
   }
 
-  const centerName = candidateList[0]?.centreName || candidateList[0]?.centre || context.centreName || 'N/A';
-  const cityName = candidateList[0]?.cityName || candidateList[0]?.city || context.cityName || 'N/A';
+  const centerCode = candidateList[0]?.centreCode || candidateList[0]?.centreCode || context.centreCode || context.centerCode || 'N/A';
+  const centerName = candidateList[0]?.centreName || candidateList[0]?.centre || context.centreName || context.centerName || 'N/A';
   const examSlot = candidateList[0]?.examSlot || candidateList[0]?.slot || context.examSlot || 'N/A';
   const candidateCount = candidateList.length;
 
   const html = renderTemplate(template, {
     rows: rowsHtml,
     generatedAt: getISTDateTime(),
+    centerCode,
     centerName,
-    cityName,
     examSlot,
     candidateCount
   });

@@ -13,13 +13,12 @@ interface CandidateDetailsProps {
   setGender: (value: string) => void;
   thumb: string;
   setThumb: (value: string) => void;
-  setImagePaths: (paths: { uploadedImagePath: string; liveImagePath: string; biometricImagePath: string; }) => void;
-  setCapturedImages: (images: { signature: boolean; uploaded: boolean; camera: boolean; live: boolean; thumb: boolean; }) => void;
-  setCapturedImage: (image: string) => void;
+  setImagePaths: (paths: { uploadedImagePath: string; signatureImagePath: string; biometricImagePath: string; }) => void;
+  setCapturedImages: (images: { signature: boolean; uploaded: boolean; thumb: boolean; }) => void;
   onCandidateLoaded: (loaded: boolean) => void;
   onSubmit: (applicationNumber: string) => void;
   isSubmitting: boolean;
-  capturedImages: { signature: boolean; uploaded: boolean; camera: boolean; live: boolean; thumb: boolean; };
+  capturedImages: { signature: boolean; uploaded: boolean; thumb: boolean; };
   onNewCandidate: () => void;
   onResetSystem: () => void;
   onCandidateMetadataLoaded: (metadata: { slot: string; userExamApplicationId: string }) => void;
@@ -43,7 +42,6 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   onCandidateLoaded,
   setImagePaths,
   setCapturedImages,
-  setCapturedImage,
   capturedImages,
   isSubmitting,
 }) => {
@@ -56,7 +54,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   const searchTimeoutRef = useRef<number | null>(null);
 
   const canNewCandidate = Boolean(applicationNumber.trim() || candidateName.trim() || email.trim());
-  const canSubmitBiometrics = capturedImages.live && capturedImages.thumb;
+  const canSubmitBiometrics = capturedImages.thumb;
   const isNewCandidateEnabled = canNewCandidate; // explicit alias for clarity
   // Search application numbers from API with debouncing
   const searchApplicationNumbers = async (query: string) => {
@@ -109,24 +107,16 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
         setThumb(candidate.thumb || 'right-thumb');
 
         setImagePaths({
-          uploadedImagePath: candidate.liveImagePath || '', // This goes to Signature box (signature.jpg)
-          liveImagePath: candidate.uploadedImagePath || '', // This goes to Uploaded Image box (photo.jpg)
-          biometricImagePath: candidate.biometricImagePath || '' // This goes to Thumb box
+          uploadedImagePath: candidate.uploadedImagePath || '',
+          signatureImagePath: candidate.liveImagePath || '',
+          biometricImagePath: candidate.biometricImagePath || ''
         });
-
-        const hasLiveCapture = !!candidate.capturedImagePath;
 
         setCapturedImages({
           signature: !!candidate.liveImagePath, // Show signature check if liveImagePath exists
           uploaded: !!candidate.uploadedImagePath, // Show uploaded check if uploadedImagePath exists
-          camera: hasLiveCapture,
-          live: hasLiveCapture,
-          thumb: !!candidate.biometricImagePath, // Show thumb check if biometricImagePath exists
+          thumb: !!candidate.biometricImagePath // Show thumb check if biometricImagePath exists
         });
-
-        if (candidate.capturedImagePath) {
-          setCapturedImage(candidate.capturedImagePath);
-        }
 
         onCandidateLoaded(true);
         onCandidateMetadataLoaded({
@@ -233,7 +223,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
                 type="button"
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={clearApplicationNumber}
-                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm transition-all duration-200 hover:cursor-pointer hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="absolute right-2 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-500 shadow-sm transition-all duration-200 hover:cursor-pointer hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 aria-label="Clear application number"
               >
                 <X className="h-4 w-4" />

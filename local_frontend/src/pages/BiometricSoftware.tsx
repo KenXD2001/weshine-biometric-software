@@ -32,21 +32,17 @@ const BiometricSoftware: React.FC = () => {
   const [email, setEmail] = useState('');
   const [gender, setGender] = useState('');
   const [thumb, setThumb] = useState('');
-  const [isWebcamActive, setIsWebcamActive] = useState(false);
   const [isCandidateLoaded, setIsCandidateLoaded] = useState(false);
   const [capturedImages, setCapturedImages] = useState({
     signature: false,
     uploaded: false,
-    camera: false,
-    live: false,
     thumb: false
   });
   const [imagePaths, setImagePaths] = useState({
     uploadedImagePath: '',
-    liveImagePath: '',
+    signatureImagePath: '',
     biometricImagePath: ''
   });
-  const [capturedImage, setCapturedImage] = useState(''); // For webcam captures
   const [candidateSlot, setCandidateSlot] = useState('');
   const [candidateApplicationId, setCandidateApplicationId] = useState('');
   const [thumbTemplate, setThumbTemplate] = useState({ isoTemplateBase64: '', templateBase64: '' });
@@ -84,7 +80,7 @@ const BiometricSoftware: React.FC = () => {
   const { toasts, success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo, removeToast } = useToast();
 
   const handleCapture = (
-    type: 'signature' | 'uploaded' | 'camera' | 'live' | 'thumb',
+    type: 'signature' | 'uploaded' | 'thumb',
     imageData?: string,
     templateData?: { isoTemplateBase64?: string; templateBase64?: string },
     captureTimestamp?: string,
@@ -97,9 +93,7 @@ const BiometricSoftware: React.FC = () => {
     }
 
     if (imageData) {
-      if (type === 'live') {
-        setCapturedImage(imageData);
-      } else if (type === 'thumb') {
+      if (type === 'thumb') {
         setImagePaths(prev => ({
           ...prev,
           biometricImagePath: imageData
@@ -117,13 +111,18 @@ const BiometricSoftware: React.FC = () => {
         } else {
           setThumbCaptureTimestamp(new Date().toISOString());
         }
+      } else if (type === 'uploaded') {
+        setImagePaths(prev => ({
+          ...prev,
+          uploadedImagePath: imageData
+        }));
+      } else if (type === 'signature') {
+        setImagePaths(prev => ({
+          ...prev,
+          signatureImagePath: imageData
+        }));
       }
     }
-  };
-
-  const handleWebcamToggle = () => {
-    const newState = !isWebcamActive;
-    setIsWebcamActive(newState);
   };
 
   const handleSubmit = async (submitApplicationNumber: string) => {
@@ -140,23 +139,8 @@ const BiometricSoftware: React.FC = () => {
     setIsSubmitting(true);
 
     try {
-      let faceResult;
       let thumbResult;
 
-      // Submit captured webcam face image (live capture)
-      if (capturedImage) {
-        faceResult = await biometricService.submitFaceCapture(
-          submitApplicationNumber,
-          capturedImage,
-          undefined,
-          candidateSlot || examSlot || undefined,
-          candidateApplicationId || undefined
-        );
-      } else {
-        toastInfo('No Webcam Capture', 'No captured webcam image available yet.');
-      }
-
-      // Submit captured thumb data (from biometricImagePath)
       if (imagePaths.biometricImagePath && imagePaths.biometricImagePath.startsWith('data:')) {
         thumbResult = await biometricService.submitThumbCapture(
           submitApplicationNumber,
@@ -172,18 +156,12 @@ const BiometricSoftware: React.FC = () => {
         toastInfo('No Thumb Capture', 'No captured thumb data available yet.');
       }
 
-      if ((faceResult && faceResult.successful) || (thumbResult && thumbResult.successful)) {
-        const messages = [];
-        if (faceResult?.successful) messages.push('Face');
-        if (thumbResult?.successful) messages.push('Thumb');
-
-        toastSuccess('Biometric Submission', `${messages.join(' and ')} data submitted successfully.`);
+      if (thumbResult?.successful) {
+        toastSuccess('Biometric Submission', 'Thumb data submitted successfully.');
         window.dispatchEvent(new Event('candidateDataUpdated'));
-
-        // Reset candidate and biometric UI after successful submit
         handleNewCandidate();
       } else {
-        toastError('Submission Failed', 'No biometric image was submitted. Ensure webcam and/or thumb capture are complete.');
+        toastError('Submission Failed', 'No biometric thumb data was submitted. Ensure thumb capture is complete.');
       }
 
     } catch (error: unknown) {
@@ -204,9 +182,8 @@ const BiometricSoftware: React.FC = () => {
     setEmail('');
     setGender('');
     setThumb('');
-    setCapturedImages({ signature: false, uploaded: false, camera: false, live: false, thumb: false });
-    setImagePaths({ uploadedImagePath: '', liveImagePath: '', biometricImagePath: '' });
-    setCapturedImage('');
+    setCapturedImages({ signature: false, uploaded: false, thumb: false });
+    setImagePaths({ uploadedImagePath: '', signatureImagePath: '', biometricImagePath: '' });
     setCandidateSlot('');
     setCandidateApplicationId('');
     setThumbTemplate({ isoTemplateBase64: '', templateBase64: '' });
@@ -235,9 +212,8 @@ const BiometricSoftware: React.FC = () => {
         setGender('');
         setThumb('');
         setIsCandidateLoaded(false);
-        setCapturedImages({ signature: false, uploaded: false, camera: false, live: false, thumb: false });
-        setImagePaths({ uploadedImagePath: '', liveImagePath: '', biometricImagePath: '' });
-        setCapturedImage('');
+        setCapturedImages({ signature: false, uploaded: false, thumb: false });
+        setImagePaths({ uploadedImagePath: '', signatureImagePath: '', biometricImagePath: '' });
         toastSuccess('Reset successful', 'System reset completed. Please upload candidate data again.');
       } else {
         toastError('Reset failed', result?.message || 'Could not reset system.');
@@ -262,14 +238,11 @@ const BiometricSoftware: React.FC = () => {
 
         <BiometricDetails
           capturedImages={capturedImages}
-          isWebcamActive={isWebcamActive}
           isCandidateLoaded={isCandidateLoaded}
           uploadedImagePath={imagePaths.uploadedImagePath}
-          liveImagePath={imagePaths.liveImagePath}
+          signatureImagePath={imagePaths.signatureImagePath}
           biometricImagePath={imagePaths.biometricImagePath}
-          capturedImage={capturedImage}
           handleCapture={handleCapture}
-          handleWebcamToggle={handleWebcamToggle}
         />
       </div>
 
@@ -290,7 +263,6 @@ const BiometricSoftware: React.FC = () => {
           setThumb={setThumb}
           setImagePaths={setImagePaths}
           setCapturedImages={setCapturedImages}
-          setCapturedImage={setCapturedImage}
           capturedImages={capturedImages}
           onCandidateLoaded={setIsCandidateLoaded}
           onCandidateMetadataLoaded={({ slot, userExamApplicationId }) => {

@@ -17,14 +17,12 @@ interface Candidate {
   biometricStatus: string;
   uploadedImagePath?: string;
   liveImagePath?: string;
-  capturedImagePath?: string;
   biometricImagePath?: string;
   city?: string;
   examSlot?: string;
   slot?: string;
   centreCode: string;
   centreName: string;
-  imageCaptureTimestamp?: string;
   thumbCaptureTimestamp?: string;
   submitTimestamp?: string;
   imageCapturedAt?: string;
@@ -68,7 +66,7 @@ const BiometricCandidateList: React.FC = () => {
         // Transform backend data to match our interface
         const transformedCandidates = data.data.map((candidate: Candidate) => ({
           id: candidate.id,
-          applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || '',
+          applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || '',
           hallTicket: candidate.hallTicket,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -78,14 +76,12 @@ const BiometricCandidateList: React.FC = () => {
           biometricStatus: candidate.biometricStatus,
           uploadedImagePath: candidate.uploadedImagePath,
           liveImagePath: candidate.liveImagePath,
-          capturedImagePath: candidate.capturedImagePath,
           biometricImagePath: candidate.biometricImagePath,
           city: candidate.city,
           examSlot: candidate.examSlot || candidate.slot || '',
           slot: candidate.slot || candidate.examSlot || '',
           centreCode: candidate.centreCode,
           centreName: candidate.centreName,
-          imageCaptureTimestamp: candidate.imageCaptureTimestamp,
           thumbCaptureTimestamp: candidate.thumbCaptureTimestamp,
           submitTimestamp: candidate.submitTimestamp
         }));
@@ -115,6 +111,16 @@ const BiometricCandidateList: React.FC = () => {
     fetchCandidates();
     fetchCentreInfo();
   }, [fetchCandidates, fetchCentreInfo]);
+
+  // Refresh candidate list when biometric data is updated elsewhere
+  useEffect(() => {
+    const handleCandidateDataUpdated = () => {
+      fetchCandidates();
+    };
+
+    window.addEventListener('candidateDataUpdated', handleCandidateDataUpdated);
+    return () => window.removeEventListener('candidateDataUpdated', handleCandidateDataUpdated);
+  }, [fetchCandidates]);
 
   // Auto-refresh functionality
   useEffect(() => {
@@ -179,7 +185,7 @@ const BiometricCandidateList: React.FC = () => {
     const candidateStatus = (candidate.biometricStatus || '').toLowerCase();
     const term = searchTerm.trim().toLowerCase();
 
-    const applicationNumber = (candidate.applicationNumber || candidate.hallTicket || '').toLowerCase();
+    const applicationNumber = (candidate.applicationNumber || '').toLowerCase();
     const matchesSearch =
       candidateName.toLowerCase().includes(term) ||
       candidateEmail.toLowerCase().includes(term) ||
@@ -199,9 +205,7 @@ const BiometricCandidateList: React.FC = () => {
 
   const resolveApiAsset = (path?: string) => {
     if (!path) return '';
-    console.log('[BiometricCandidateList] resolveApiAsset input path:', path);
     if (path.startsWith('http://') || path.startsWith('https://')) {
-      console.log('[BiometricCandidateList] resolveApiAsset direct URL returned:', path);
       return path;
     }
 
@@ -210,22 +214,15 @@ const BiometricCandidateList: React.FC = () => {
     let normalizedPath = path;
     if (!normalizedPath.startsWith('/')) normalizedPath = `/${normalizedPath}`;
 
-    // If resource is /data path, serve from backend data static route (without extra /api prefix)
     if (normalizedPath.startsWith('/data')) {
-      const resolved = `${dataBaseUrl}${normalizedPath}`;
-      console.log('[BiometricCandidateList] resolveApiAsset /data resolved:', resolved);
-      return resolved;
+      return `${dataBaseUrl}${normalizedPath}`;
     }
 
     if (normalizedPath.startsWith('/api') || normalizedPath.startsWith('/uploads')) {
-      const resolved = `${apiUrl}${normalizedPath}`;
-      console.log('[BiometricCandidateList] resolveApiAsset /api or /uploads resolved:', resolved);
-      return resolved;
+      return `${apiUrl}${normalizedPath}`;
     }
 
-    const resolved = `${apiUrl}/api/upload/images${normalizedPath}`;
-    console.log('[BiometricCandidateList] resolveApiAsset fallback resolved:', resolved);
-    return resolved;
+    return `${apiUrl}/api/upload/images${normalizedPath}`;
   };
 
   const formatTimestamp = (timestamp?: string | null) => {
@@ -302,24 +299,20 @@ const BiometricCandidateList: React.FC = () => {
     setIsExporting(true);
 
     try {
-      console.log(`Exporting data as ${format.toUpperCase()}...`);
       setExportDropdownOpen(false);
 
       if (format === 'csv') {
-        const headers = ['Application Number', 'Candidate', 'Email', 'Gender', 'Signature', 'Photo', 'Captured Photo', 'Captured Thumb', 'Status', 'Image Capture', 'Thumb Capture', 'Submit Time'];
+        const headers = ['Application Number', 'Candidate Name', 'Email', 'Uploaded Signature', 'Uploaded Photo', 'Captured Thumb', 'Status', 'Thumb Capture Timestamp', 'Submit Timestamp'];
         const lines = [headers.join(',')];
         filteredCandidates.forEach(c => {
           const row = [
-            c.applicationNumber || c.hallTicket || '',
+            c.applicationNumber || '',
             c.candidateName || '',
             c.emailId || '',
-            c.gender || '',
-            c.uploadedImagePath || '',
             c.liveImagePath || '',
-            c.capturedImagePath || '',
+            c.uploadedImagePath || '',
             c.biometricImagePath || '',
             c.biometricStatus || '',
-            c.imageCaptureTimestamp || '',
             c.thumbCaptureTimestamp || '',
             c.submitTimestamp || ''
           ].map(value => `"${String(value).replace(/"/g, '""')}"`);
@@ -619,16 +612,13 @@ const BiometricCandidateList: React.FC = () => {
                   Application Number
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Candidate
+                  Candidate Name / Email
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Photo
+                  Uploaded Signature
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Signature
-                </th>
-                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Captured Photo
+                  Uploaded Photo
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Captured Thumb
@@ -637,46 +627,36 @@ const BiometricCandidateList: React.FC = () => {
                   Status
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
-                  Capture & Submit Timing
+                  Thumb & Submit Timing
                 </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {paginatedCandidates.map((candidate) => {
-                console.log('[BiometricCandidateList] candidate row', candidate.applicationNumber || candidate.hallTicket, candidate.uploadedImagePath, candidate.liveImagePath, candidate.capturedImagePath, candidate.biometricImagePath);
                 return (
                   <tr key={candidate.id} className="hover:bg-slate-50/50 transition-colors">
-                    <td className="px-3 py-2 text-xs font-medium text-slate-800 align-top">{candidate.applicationNumber || candidate.hallTicket}</td>
+                    <td className="px-3 py-2 text-xs font-medium text-slate-800 align-top">{candidate.applicationNumber}</td>
                     <td className="px-3 py-2 text-sm text-slate-900 align-top">
                       <div className="font-medium text-slate-900">{candidate.candidateName}</div>
                       <div className="text-xs text-slate-500">{candidate.emailId}</div>
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-700 align-top">
-                      {candidate.uploadedImagePath ? (
-                        <img
-                          src={resolveApiAsset(candidate.uploadedImagePath)}
-                          alt="Signature"
-                          className="h-18 w-18 object-contain rounded"
-                        />
-                      ) : 'Not Found'}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-slate-700 align-top">
                       {candidate.liveImagePath ? (
                         <img
                           src={resolveApiAsset(candidate.liveImagePath)}
-                          alt="Photo"
+                          alt="Signature"
                           className="h-18 w-18 object-contain rounded"
                         />
-                      ) : 'Not Found'}
+                      ) : 'Not Available'}
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-700 align-top">
-                      {candidate.capturedImagePath ? (
+                      {candidate.uploadedImagePath ? (
                         <img
-                          src={resolveApiAsset(candidate.capturedImagePath)}
-                          alt="Captured Photo"
-                          className="h-18 w-28 object-contain rounded"
+                          src={resolveApiAsset(candidate.uploadedImagePath)}
+                          alt="Uploaded Photo"
+                          className="h-18 w-18 object-contain rounded"
                         />
-                      ) : 'Not Captured'}
+                      ) : 'Not Available'}
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-700 align-top">
                       {candidate.biometricImagePath ? (
@@ -689,22 +669,18 @@ const BiometricCandidateList: React.FC = () => {
                     </td>
                     <td className="px-3 py-2">{getStatusBadge(candidate.biometricStatus)}</td>
                     <td className="px-3 py-2 text-xs space-y-1">
-                    <div className="flex items-center gap-1 text-slate-600">
-                      <Camera className="w-3 h-3" />
-                      {formatTimestamp(candidate.imageCaptureTimestamp)}
-                    </div>
-                    <div className="flex items-center gap-1 text-slate-600">
-                      <Fingerprint className="w-3 h-3" />
-                      {formatTimestamp(candidate.thumbCaptureTimestamp)}
-                    </div>
-                    <div className="flex items-center gap-1 text-slate-600">
-                      <Send className="w-3 h-3" />
-                      {formatTimestamp(candidate.submitTimestamp)}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <Fingerprint className="w-3 h-3" />
+                        {formatTimestamp(candidate.thumbCaptureTimestamp)}
+                      </div>
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <Send className="w-3 h-3" />
+                        {formatTimestamp(candidate.submitTimestamp)}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

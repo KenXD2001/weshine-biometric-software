@@ -94,10 +94,8 @@ router.get('/view-generated-hall-ticket-list', (req, res) => {
       // Image paths
       uploadedImagePath: candidate.uploadedImagePath || null,
       liveImagePath: candidate.liveImagePath || null,
-      capturedImagePath: candidate.capturedImagePath ? `/uploads/${candidate.capturedImagePath}` : null,
       biometricImagePath: candidate.biometricImagePath ? `/uploads/${candidate.biometricImagePath}` : null,
       // Timestamps
-      imageCaptureTimestamp: candidate.imageCaptureTimestamp || null,
       thumbCaptureTimestamp: candidate.thumbCaptureTimestamp || null,
       submitTimestamp: candidate.submitTimestamp || null
     }));

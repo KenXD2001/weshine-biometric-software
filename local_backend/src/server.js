@@ -53,7 +53,7 @@ app.use(compression());
 const allowAll = process.env.ALLOW_ALL_ORIGINS === undefined || process.env.ALLOW_ALL_ORIGINS !== 'false';
 
 if (allowAll) {
-  console.log('🔐 CORS configured: echoing origin and allowing credentials (development)');
+  logger.info('CORS configured: echoing origin and allowing credentials (development)');
   app.use((req, res, next) => {
     const origin = req.headers.origin || '*';
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -70,7 +70,7 @@ if (allowAll) {
     ? process.env.CORS_ORIGINS.split(',').map(origin => origin.trim())
     : ['http://10.166.189.163:3030'];
 
-  console.log('🔐 CORS Origins configured:', corsOrigins);
+  logger.info('CORS Origins configured', { corsOrigins });
 
   app.use(cors({
     origin: corsOrigins,

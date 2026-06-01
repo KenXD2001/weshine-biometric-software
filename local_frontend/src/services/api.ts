@@ -250,9 +250,20 @@ export const biometricService = {
 
       if (response.ok) {
         const deviceInfo = await response.json();
+        const errorCode = String(deviceInfo?.ErrorCode || deviceInfo?.errorCode || '').trim();
+        const errorDescription = String(deviceInfo?.ErrorDescription || deviceInfo?.errorDescription || '').trim();
+
+        if (errorCode === '0') {
+          return {
+            connected: true,
+            message: 'Mantra MFS100 device is connected and working properly',
+            deviceInfo
+          };
+        }
+
         return {
-          connected: true,
-          message: 'Mantra MFS100 device is connected and working properly',
+          connected: false,
+          message: errorDescription || 'Device is not responding correctly',
           deviceInfo
         };
       }
@@ -385,35 +396,6 @@ export const biometricService = {
     }
   },
 
-  submitFaceCapture: async (applicationNumber: string, faceData: string, captureTimestamp?: string, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/biometric-details/submit-face-capture`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          applicationNumber,
-          faceData,
-          slot: slot || null,
-          userExamApplicationId: userExamApplicationId || null,
-          captureTimestamp: captureTimestamp || new Date().toISOString()
-        })
-      });
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || 'Failed to submit face capture');
-      }
-
-      return await response.json();
-    } catch (error: unknown) {
-      console.error('Face submit error:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      return { successful: false, message: `Face submit failed: ${errorMessage}` };
-    }
-  },
-
   submitThumbCapture: async (applicationNumber: string, thumbData: string, isoTemplateBase64?: string, templateBase64?: string, captureTimestamp?: string, deviceApiResponse?: BiometricDeviceApiResponse, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
     try {
       const response = await fetch(`${API_BASE_URL}/biometric-details/submit-thumb-capture`, {
@@ -426,8 +408,8 @@ export const biometricService = {
           thumbData,
           slot: slot || null,
           userExamApplicationId: userExamApplicationId || null,
-          ISOTemplateBase64: isoTemplateBase64 || null,
-          TemplateBase64: templateBase64 || null,
+          capturedThumbIsoTemplate: isoTemplateBase64 || null,
+          capturedThumbAnsiTemplate: templateBase64 || null,
           deviceApiResponse: deviceApiResponse || null,
           captureTimestamp: captureTimestamp || new Date().toISOString()
         })

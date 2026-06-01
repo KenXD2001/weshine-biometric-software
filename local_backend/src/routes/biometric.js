@@ -70,7 +70,7 @@ async function syncBiometricDataToCloud(biometricPayload) {
     const cloudBackendUrl = process.env.CLOUD_BACKEND_URL || 'http://localhost:8040';
     
     logger.info('Sending biometric data to cloud backend', {
-      hallTicket: biometricPayload.hallTicket,
+      applicationNumber: biometricPayload.applicationNumber,
       captureType: biometricPayload.captureType,
       cloudUrl: cloudBackendUrl,
       hasFaceImage: !!biometricPayload.faceImagePath,
@@ -82,7 +82,7 @@ async function syncBiometricDataToCloud(biometricPayload) {
     
     // Add metadata as JSON string
     formData.append('metadata', JSON.stringify({
-      hallTicket: biometricPayload.hallTicket,
+      applicationNumber: biometricPayload.applicationNumber,
       slot: biometricPayload.slot || biometricPayload.examSlot || null,
       candidateId: biometricPayload.userExamApplicationId || biometricPayload.candidateId,
       candidateName: biometricPayload.candidateName,
@@ -102,15 +102,61 @@ async function syncBiometricDataToCloud(biometricPayload) {
       TemplateBase64: biometricPayload.TemplateBase64
     }));
 
-    // Add image files if they exist
-    if (biometricPayload.faceImagePath && fs.existsSync(biometricPayload.faceImagePath)) {
-      formData.append('faceImage', fs.createReadStream(biometricPayload.faceImagePath));
-      tempFiles.push(biometricPayload.faceImagePath);
+    // Resolve actual file paths for candidate image paths if they are API-style paths.
+    const resolveLocalImagePath = (imagePath) => {
+      if (!imagePath) return null;
+      if (fs.existsSync(imagePath)) {
+        return imagePath;
+      }
+      const cleanedPath = imagePath.replace(/^\/+/, '');
+      const resolvedPath = path.join(__dirname, '../../', cleanedPath);
+      if (fs.existsSync(resolvedPath)) {
+        return resolvedPath;
+      }
+      return null;
+    };
+
+    const faceImageFile = resolveLocalImagePath(biometricPayload.faceImagePath);
+    const thumbImageFile = resolveLocalImagePath(biometricPayload.thumbImagePath);
+
+    const pushTemp = (filePath) => {
+      if (filePath) tempFiles.push(filePath);
+      return filePath;
+    };
+
+    let resolvedFaceImageFile = faceImageFile;
+    let resolvedThumbImageFile = thumbImageFile;
+
+    if (!resolvedFaceImageFile && biometricPayload.faceData) {
+      resolvedFaceImageFile = pushTemp(base64ToImageFile(biometricPayload.faceData, 'face'));
+      logger.info('Created temp face image file from base64', {
+        applicationNumber: biometricPayload.applicationNumber,
+        tempFilePath: resolvedFaceImageFile
+      });
     }
 
-    if (biometricPayload.thumbImagePath && fs.existsSync(biometricPayload.thumbImagePath)) {
-      formData.append('thumbImage', fs.createReadStream(biometricPayload.thumbImagePath));
-      tempFiles.push(biometricPayload.thumbImagePath);
+    if (!resolvedThumbImageFile && biometricPayload.thumbData) {
+      resolvedThumbImageFile = pushTemp(base64ToImageFile(biometricPayload.thumbData, 'thumb'));
+      logger.info('Created temp thumb image file from base64', {
+        applicationNumber: biometricPayload.applicationNumber,
+        tempFilePath: resolvedThumbImageFile
+      });
+    }
+
+    if (resolvedFaceImageFile) {
+      logger.info('Using resolved face image file for sync', {
+        faceImagePath: biometricPayload.faceImagePath,
+        resolvedPath: resolvedFaceImageFile
+      });
+      formData.append('faceImage', fs.createReadStream(resolvedFaceImageFile));
+    }
+
+    if (resolvedThumbImageFile) {
+      logger.info('Using resolved thumb image file for sync', {
+        thumbImagePath: biometricPayload.thumbImagePath,
+        resolvedPath: resolvedThumbImageFile
+      });
+      formData.append('thumbImage', fs.createReadStream(resolvedThumbImageFile));
     }
 
     const response = await axios.post(
@@ -164,143 +210,35 @@ async function syncBiometricDataToCloud(biometricPayload) {
   }
 }
 
-// Submit face capture data
-router.post('/submit-face-capture', async (req, res) => {
-  try {
-    const { faceData, hallTicket, applicationNumber, slot, userExamApplicationId } = req.body;
-    const lookupKey = hallTicket || applicationNumber || userExamApplicationId || '';
-    
-    logger.info('Submitting face capture', { 
-      hallTicket,
-      applicationNumber,
-      slot,
-      userExamApplicationId,
-      ip: req.ip 
-    });
-
-    if (!faceData || !lookupKey) {
-      return res.status(400).json({
-        successful: false,
-        message: 'Face data and application number are required'
-      });
-    }
-
-    // Update candidate's face status
-    const candidatesModule = require('./candidates');
-    const candidates = candidatesModule.getCandidates();
-    const normalizedLookup = String(lookupKey).trim().toLowerCase();
-    const candidate = candidates.find((c) => {
-      const candidateKey = String(c.hallTicket || c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
-      return candidateKey === normalizedLookup;
-    });
-    
-    if (!candidate) {
-      return res.status(404).json({
-        successful: false,
-        message: 'Candidate not found'
-      });
-    }
-
-    const candidateIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
-    const capturedImagePath = imageStorage.saveBase64Image(faceData, candidateIdentifier, 'captured');
-    
-    candidate.faceCaptureData = faceData;
-    candidate.capturedImagePath = capturedImagePath;
-    candidate.faceStatus = 'Completed';
-    // Use provided timestamp if available, else fallback
-    candidate.imageCaptureTimestamp = req.body.captureTimestamp || new Date().toISOString();
-    
-    // Update overall biometric status
-    if (candidate.faceStatus === 'Completed' && candidate.thumbStatus === 'Completed') {
-      candidate.biometricStatus = 'Completed';
-      candidate.submitTimestamp = candidate.submitTimestamp || new Date().toISOString();
-    }
-
-    // Save to disk (saves to all 3 JSON files)
-    await candidatesModule.saveToDisk();
-
-    logger.success('Face capture submitted successfully', { 
-      applicationNumber: candidate.applicationNumber || candidate.hallTicket || candidate.id,
-      candidateId: candidate.id,
-      submitTimestamp: candidate.submitTimestamp
-    });
-
-    // ASYNC: Send face data to cloud using new sync service
-    (async () => {
-      try {
-        // Reset sync state so manual recapture is uploaded again
-        const syncIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
-        syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'face', {
-          synced: false,
-          error: null,
-          retryCount: 0,
-          localPath: capturedImagePath
-        });
-        
-        const candidateData = {
-          applicationNumber: syncIdentifier,
-          hallTicket: syncIdentifier,
-          id: candidate.id,
-          candidateName: candidate.candidateName,
-          emailId: candidate.emailId,
-          phone: candidate.phone || '',
-          gender: candidate.gender || 'other',
-          centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
-          centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
-          examSlot: candidate.examSlot || candidate.slot || (require('./candidates').getCentreInfo().examSlot || ''),
-          slot: slot || candidate.slot || candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
-          examId: candidate.examId || '',
-          userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
-          timestamp: candidate.imageCaptureTimestamp,
-          faceData: faceData,
-          thumbData: null,
-          ISOTemplateBase64: null,
-          TemplateBase64: null,
-          localImagePath: capturedImagePath // Add image path for sync
-        };
-        
-        await syncService.syncBiometricData(candidateData, 'face', { force: true });
-      } catch (syncError) {
-        if (syncError) logger.error('Face sync error:', syncError);
-      }
-    })();
-
-    res.json({
-      successful: true,
-      message: 'Face capture submitted successfully'
-    });
-
-  } catch (error) {
-    logger.error('Error submitting face capture', {
-      error: error.message,
-      stack: error.stack,
-      ip: req.ip
-    });
-    res.status(500).json({
-      successful: false,
-      message: 'Internal server error'
-    });
-  }
-});
-
 // Submit thumb capture data
 router.post('/submit-thumb-capture', async (req, res) => {
   try {
-    const { thumbData, hallTicket, applicationNumber, slot, userExamApplicationId, ISOTemplateBase64, TemplateBase64, deviceApiResponse, secugenApiResponse } = req.body;
-    const rawDeviceResponse = deviceApiResponse || secugenApiResponse;
-    const lookupKey = hallTicket || applicationNumber || userExamApplicationId || '';
-    
-    logger.info('Submitting thumb capture', { 
-      hallTicket,
-      applicationNumber,
-      hasISOTemplate: !!ISOTemplateBase64,
-      isoTemplateLength: ISOTemplateBase64 ? ISOTemplateBase64.length : 0,
-      hasTemplate: !!TemplateBase64,
-      templateLength: TemplateBase64 ? TemplateBase64.length : 0,
-      hasDeviceResponse: !!rawDeviceResponse,
-      deviceResponseKeys: rawDeviceResponse ? Object.keys(rawDeviceResponse) : [],
-      ip: req.ip 
-    });
+      const {
+        thumbData,
+        applicationNumber,
+        slot,
+        userExamApplicationId,
+        IsoTemplate,
+        AnsiTemplate,
+        capturedThumbIsoTemplate,
+        capturedThumbAnsiTemplate,
+        deviceApiResponse,
+        secugenApiResponse
+      } = req.body;
+
+      const rawDeviceResponse = deviceApiResponse || secugenApiResponse;
+      const lookupKey = applicationNumber || userExamApplicationId || '';
+
+      logger.info('Submitting thumb capture', {
+        applicationNumber,
+        hasIsoTemplate: !!(IsoTemplate || rawDeviceResponse?.IsoTemplate || rawDeviceResponse?.ISOTemplateBase64),
+        isoTemplateLength: (IsoTemplate || rawDeviceResponse?.IsoTemplate || rawDeviceResponse?.ISOTemplateBase64)?.length || 0,
+        hasAnsiTemplate: !!(AnsiTemplate || rawDeviceResponse?.AnsiTemplate || rawDeviceResponse?.TemplateBase64),
+        ansiTemplateLength: (AnsiTemplate || rawDeviceResponse?.AnsiTemplate || rawDeviceResponse?.TemplateBase64)?.length || 0,
+        hasDeviceResponse: !!rawDeviceResponse,
+        deviceResponseKeys: rawDeviceResponse ? Object.keys(rawDeviceResponse) : [],
+        ip: req.ip
+      });
 
     if (!thumbData || !lookupKey) {
       return res.status(400).json({
@@ -314,7 +252,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
     const candidates = candidatesModule.getCandidates();
     const normalizedLookup = String(lookupKey).trim().toLowerCase();
     const candidate = candidates.find((c) => {
-      const candidateKey = String(c.hallTicket || c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
+      const candidateKey = String(c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
       return candidateKey === normalizedLookup;
     });
     
@@ -325,7 +263,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
       });
     }
 
-    const candidateIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
+    const candidateIdentifier = candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || lookupKey;
     const biometricImagePath = imageStorage.saveBase64Image(thumbData, candidateIdentifier, 'biometric');
     
     candidate.thumbCaptureData = thumbData;
@@ -333,11 +271,15 @@ router.post('/submit-thumb-capture', async (req, res) => {
     candidate.thumbStatus = 'Completed';
     
     const deviceResponse = rawDeviceResponse || {};
-    candidate.ISOTemplateBase64 = deviceResponse.ISOTemplateBase64 || ISOTemplateBase64 || null;
-    candidate.TemplateBase64 = deviceResponse.TemplateBase64 || TemplateBase64 || null;
+    const isoTemplate = deviceResponse.IsoTemplate || deviceResponse.ISOTemplateBase64 || IsoTemplate || capturedThumbIsoTemplate || null;
+    const ansiTemplate = deviceResponse.AnsiTemplate || deviceResponse.TemplateBase64 || AnsiTemplate || capturedThumbAnsiTemplate || null;
+    candidate.capturedThumbIsoTemplate = isoTemplate;
+    candidate.capturedThumbAnsiTemplate = ansiTemplate;
+    candidate.ISOTemplateBase64 = candidate.ISOTemplateBase64 || isoTemplate;
+    candidate.TemplateBase64 = candidate.TemplateBase64 || ansiTemplate;
 
     logger.info('Assigned thumb biometric templates', {
-      hallTicket,
+      applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.id,
       candidateId: candidate.id,
       ISOTemplateBase64Exists: !!candidate.ISOTemplateBase64,
       TemplateBase64Exists: !!candidate.TemplateBase64,
@@ -348,8 +290,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
     // Use provided timestamp if available, else fallback
     candidate.thumbCaptureTimestamp = req.body.captureTimestamp || new Date().toISOString();
     
-    // Update overall biometric status
-    if (candidate.faceStatus === 'Completed' && candidate.thumbStatus === 'Completed') {
+    // Update overall biometric status for the thumb-only workflow
+    if (candidate.thumbStatus === 'Completed') {
       candidate.biometricStatus = 'Completed';
       candidate.submitTimestamp = candidate.submitTimestamp || new Date().toISOString();
     }
@@ -358,7 +300,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
     await candidatesModule.saveToDisk();
 
     logger.success('Thumb capture submitted successfully', { 
-      applicationNumber: candidate.applicationNumber || candidate.hallTicket || candidate.id,
+      applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.id,
       candidateId: candidate.id,
       hasDeviceResponse: !!rawDeviceResponse,
       responseErrorCode: rawDeviceResponse?.ErrorCode,
@@ -369,7 +311,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
     (async () => {
       try {
         // Reset sync state so manual recapture is uploaded again
-        const syncIdentifier = candidate.applicationNumber || candidate.hallTicket || candidate.userExamApplicationId || candidate.id || lookupKey;
+        const syncIdentifier = candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || lookupKey;
         syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'thumb', {
           synced: false,
           error: null,
@@ -379,7 +321,6 @@ router.post('/submit-thumb-capture', async (req, res) => {
         
         const candidateData = {
           applicationNumber: syncIdentifier,
-          hallTicket: syncIdentifier,
           id: candidate.id,
           candidateName: candidate.candidateName,
           emailId: candidate.emailId,
@@ -393,7 +334,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
           userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
           timestamp: candidate.thumbCaptureTimestamp,
           faceData: null,
-          thumbData: thumbData,
+          thumbData: thumbData || null,
           ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
           TemplateBase64: candidate.TemplateBase64 || null,
           localImagePath: biometricImagePath // Add image path for sync
@@ -627,9 +568,8 @@ router.post('/sync-all-to-cloud', async (req, res) => {
           gender: candidate.gender || 'other',
           
           // Biometric Data
-          faceData: candidate.faceCaptureData || null,
           thumbData: candidate.thumbCaptureData || null,
-          captureType: 'both',
+          captureType: 'thumb',
           
           // Essential Template Fields Only
           ISOTemplateBase64: candidate.ISOTemplateBase64 || null,

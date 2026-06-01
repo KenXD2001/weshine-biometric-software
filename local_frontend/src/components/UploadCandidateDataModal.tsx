@@ -81,6 +81,12 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
 
   const handleUpload = () => {
     if (selectedFile && validateFile(selectedFile)) {
+      console.log('[UploadCandidateDataModal] Uploading ZIP file', {
+        name: selectedFile.name,
+        size: selectedFile.size,
+        type: selectedFile.type,
+        lastModified: selectedFile.lastModified
+      });
       onUpload(selectedFile);
       handleClose();
     }
@@ -147,7 +153,9 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
                 <p className="text-sm font-medium text-gray-700">
                   {isDragging ? 'Drop file here' : 'Drag and drop your ZIP file here'}
                 </p>
-                <p className="text-xs text-gray-500 mt-1">Contains: biometric_data.csv, metadata.json, media_manifest.json</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Contains: biometric_data.csv, metadata.json, media_manifest.json, plus photos/ and signatures/ folders
+                </p>
               </div>
               <Button
                 variant="secondary"

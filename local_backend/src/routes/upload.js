@@ -916,6 +916,32 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       const zip = new AdmZip(file.path);
       zip.extractAllTo(extractionDir, true);
       logger.info('ZIP file extracted successfully');
+
+      function collectExtractionTree(dirPath, basePath = dirPath) {
+        const entries = [];
+        const items = fs.readdirSync(dirPath);
+        for (const item of items) {
+          const itemPath = path.join(dirPath, item);
+          const stat = fs.statSync(itemPath);
+          if (stat.isDirectory()) {
+            entries.push({
+              type: 'directory',
+              path: path.relative(basePath, itemPath),
+              children: collectExtractionTree(itemPath, basePath)
+            });
+          } else {
+            entries.push({
+              type: 'file',
+              path: path.relative(basePath, itemPath),
+              size: stat.size
+            });
+          }
+        }
+        return entries;
+      }
+
+      const extractionTree = collectExtractionTree(extractionDir);
+      logger.info('ZIP extraction contents', { extractionDir, extractionTree });
     } catch (extractError) {
       throw new Error(`Failed to extract ZIP file: ${extractError.message}`);
     }
@@ -983,6 +1009,12 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         mediaManifestMap.set(String(key).trim(), Array.isArray(files) ? files : []);
       });
     }
+
+    logger.info('ZIP metadata and media manifest loaded', {
+      metadata: zipMetadata,
+      mediaManifestCount: Array.from(mediaManifestMap.keys()).length,
+      mediaManifestKeys: Array.from(mediaManifestMap.keys())
+    });
 
     let candidateFile = null;
     let fileContent = null;
@@ -1323,7 +1355,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           const photoFileName = `${candidateId}.jpg`;
           photoFilePath = `photos/${photoFileName}`;
         }
-        if (fs.existsSync(path.join(extractionDir, photoFilePath))) {
+        if (!uploadedImagePath && fs.existsSync(path.join(extractionDir, photoFilePath))) {
           uploadedImagePath = copyImageFromZIP(photoFilePath, extractionDir, candidateId, 'photo');
         }
 
@@ -1338,7 +1370,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
         const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
         const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
-        const resolvedCandidateCity = centreInfo.cityName || resolveCandidateCity(candidate, centreInfo.cityNamecityName);
+        const resolvedCandidateCity = centreInfo.cityName || resolveCandidateCity(candidate, centreInfo.cityName);
         const candidateObj = {
           id: candidateId,
           hallTicket: hallTicket,
@@ -1605,7 +1637,7 @@ router.post('/reset-system', async (req, res) => {
 
     // Delete all app data files from /data
     const dataDir = path.join(__dirname, '../../data');
-    const filesToDelete = ['candidates.json', 'centreInfo.json', 'candidate_biometric_details.json'];
+    const filesToDelete = ['candidates.json', 'centreInfo.json', 'candidate_biometric_details.json', 'sync-state.json'];
 
     for (const fileName of filesToDelete) {
       const filePath = path.join(dataDir, fileName);

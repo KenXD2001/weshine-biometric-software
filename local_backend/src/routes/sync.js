@@ -302,7 +302,16 @@ router.post('/trigger-immediate', async (req, res) => {
     });
 
     const cloudResponse = await syncService.fetchCloudBiometricRecords(candidateLookupKeys);
-    const records = Array.isArray(cloudResponse.records) ? cloudResponse.records : [];
+    const records = Array.isArray(cloudResponse.records)
+      ? cloudResponse.records.map((record) => ({
+          ...record,
+          additionalDetails: record.additionalDetails ? {
+            ...record.additionalDetails,
+            ISOTemplateBase64: record.additionalDetails.ISOTemplateBase64 || record.additionalDetails.isotemplatebase64 || null,
+            TemplateBase64: record.additionalDetails.TemplateBase64 || record.additionalDetails.templatebase64 || null
+          } : null
+        }))
+      : [];
 
     logger.info('Cloud response received', {
       requestId,
@@ -341,44 +350,27 @@ router.post('/trigger-immediate', async (req, res) => {
         slot: candidate.slot || candidate.examSlot || '',
         examId: candidate.examId || '',
         userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || candidate.hallTicket || '',
-        timestamp: candidate.submitTimestamp || candidate.thumbCaptureTimestamp || candidate.imageCaptureTimestamp || new Date().toISOString(),
-        faceData: candidate.faceCaptureData || null,
+        timestamp: candidate.submitTimestamp || candidate.thumbCaptureTimestamp || new Date().toISOString(),
         thumbData: candidate.thumbCaptureData || null,
-        ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
-        TemplateBase64: candidate.TemplateBase64 || null
+        capturedThumbIsoTemplate: candidate.capturedThumbIsoTemplate || null,
+        capturedThumbAnsiTemplate: candidate.capturedThumbAnsiTemplate || null,
+        ISOTemplateBase64: candidate.ISOTemplateBase64 || candidate.capturedThumbIsoTemplate || null,
+        TemplateBase64: candidate.TemplateBase64 || candidate.capturedThumbAnsiTemplate || null
       };
 
       const syncStatus = syncService.syncStateManager.getCandidateSyncStatus(candidateKey) || {};
-      const faceLocalPath = candidate.capturedImagePath || syncStatus.face?.localPath || null;
       const thumbLocalPath = candidate.biometricImagePath || syncStatus.thumb?.localPath || null;
 
-      if ((!record.face || !record.hasBiometric) && candidate.faceStatus === 'Completed') {
-        logger.info('Attempting cloud upload for missing face biometric', {
-          requestId,
-          applicationNumber: candidateKey,
-          faceLocalPath,
-          hasFaceData: !!candidate.faceCaptureData
-        });
-
-        syncService.syncStateManager.updateSyncStatus(candidateKey, 'face', {
-          synced: false,
-          error: null,
-          retryCount: syncStatus.face?.retryCount || 0,
-          localPath: faceLocalPath
-        });
-
-        candidateData.localImagePath = faceLocalPath;
-        const faceResult = await syncService.syncBiometricData(candidateData, 'face');
-        if (faceResult.success) {
-          updated = true;
-          detail.synced = true;
-          detail.updated = true;
-          detail.notes.push('Face biometric uploaded to cloud');
-        } else {
-          detail.failed = true;
-          detail.notes.push(`Face upload failed: ${faceResult.error}`);
-        }
-      }
+      logger.info('Prepared candidate data for missing-template sync', {
+        requestId,
+        applicationNumber: candidateKey,
+        capturedThumbIsoTemplateExists: !!candidateData.capturedThumbIsoTemplate,
+        capturedThumbAnsiTemplateExists: !!candidateData.capturedThumbAnsiTemplate,
+        ISOTemplateBase64Exists: !!candidateData.ISOTemplateBase64,
+        TemplateBase64Exists: !!candidateData.TemplateBase64,
+        thumbDataExists: !!candidateData.thumbData,
+        thumbLocalPath
+      });
 
       if ((!record.thumb || !record.hasBiometric) && candidate.thumbStatus === 'Completed') {
         logger.info('Attempting cloud upload for missing thumb biometric', {
@@ -405,6 +397,51 @@ router.post('/trigger-immediate', async (req, res) => {
         } else {
           detail.failed = true;
           detail.notes.push(`Thumb upload failed: ${thumbResult.error}`);
+        }
+      }
+
+      const hasLocalTemplateData = !!(candidate.ISOTemplateBase64 || candidate.TemplateBase64 || candidate.capturedThumbIsoTemplate || candidate.capturedThumbAnsiTemplate);
+      logger.info('Evaluating missing-cloud-template sync condition', {
+        requestId,
+        applicationNumber: candidateKey,
+        recordHasBiometric: !!record.hasBiometric,
+        recordHasAdditionalDetails: !!record.additionalDetails,
+        candidateThumbStatus: candidate.thumbStatus,
+        candidateHasLocalTemplateData: hasLocalTemplateData,
+        candidateISOTemplateBase64: !!candidate.ISOTemplateBase64,
+        candidateTemplateBase64: !!candidate.TemplateBase64,
+        candidateCapturedThumbIsoTemplate: !!candidate.capturedThumbIsoTemplate,
+        candidateCapturedThumbAnsiTemplate: !!candidate.capturedThumbAnsiTemplate
+      });
+
+      if (record.hasBiometric && !record.additionalDetails && hasLocalTemplateData) {
+        logger.info('Attempting cloud upload for missing template details', {
+          requestId,
+          applicationNumber: candidateKey,
+          capturedThumbIsoTemplateExists: !!candidate.capturedThumbIsoTemplate,
+          capturedThumbAnsiTemplateExists: !!candidate.capturedThumbAnsiTemplate,
+          hasISOTemplate: !!candidate.ISOTemplateBase64,
+          hasTemplate: !!candidate.TemplateBase64,
+          thumbLocalPath
+        });
+
+        syncService.syncStateManager.updateSyncStatus(candidateKey, 'thumb', {
+          synced: false,
+          error: null,
+          retryCount: syncStatus.thumb?.retryCount || 0,
+          localPath: thumbLocalPath
+        });
+
+        candidateData.localImagePath = thumbLocalPath;
+        const templateResult = await syncService.syncBiometricData(candidateData, 'thumb');
+        if (templateResult.success) {
+          updated = true;
+          detail.synced = true;
+          detail.updated = true;
+          detail.notes.push('Template details uploaded to cloud');
+        } else {
+          detail.failed = true;
+          detail.notes.push(`Template upload failed: ${templateResult.error}`);
         }
       }
 
@@ -454,7 +491,7 @@ router.post('/trigger-immediate', async (req, res) => {
       };
 
       let changed = false;
-      const hasAnyLocal = candidate.faceStatus === 'Completed' || candidate.thumbStatus === 'Completed';
+      const hasAnyLocal = candidate.thumbStatus === 'Completed';
 
       if (!record.hasBiometric) {
         const uploaded = await syncMissingCloudData(candidate, record, detail);
@@ -470,72 +507,12 @@ router.post('/trigger-immediate', async (req, res) => {
       logger.debug('Processing candidate biometric sync', {
         requestId,
         applicationNumber: candidateKey,
-        hasFace: !!record.face,
         hasThumb: !!record.thumb,
         hasTemplate: !!record.additionalDetails,
         beforeStatus
       });
 
-      const localFaceTimestamp = getTimestampValue(candidate.imageCaptureTimestamp);
       const localThumbTimestamp = getTimestampValue(candidate.thumbCaptureTimestamp);
-
-      // Process face biometric
-      if (record.face) {
-        const cloudFaceTimestamp = getTimestampValue(record.face.captured_at || record.face.updated_at || record.face.created_at);
-        const shouldUpdateFace = !candidate.faceStatus || candidate.faceStatus !== 'Completed' || (cloudFaceTimestamp && localFaceTimestamp && cloudFaceTimestamp > localFaceTimestamp);
-
-        if (shouldUpdateFace) {
-          logger.debug('Syncing face biometric from cloud', {
-            requestId,
-            applicationNumber: record.applicationNumber || record.hallTicket,
-            cloudTimestamp: cloudFaceTimestamp?.toISOString(),
-            localTimestamp: localFaceTimestamp?.toISOString(),
-            reason: !candidate.faceStatus ? 'No local face' : (cloudFaceTimestamp > localFaceTimestamp ? 'Cloud is newer' : 'Local update needed')
-          });
-
-          const localPath = record.face.imageUrl && !record.face.imageUrl.startsWith('local:')
-            ? await downloadCloudImage(record.face.imageUrl, record.applicationNumber || record.hallTicket, 'face')
-            : record.face.imageUrl;
-
-          if (localPath && localPath !== record.face.imageUrl) {
-            totalDownloadedImages++;
-            detail.downloadedImages.push({ type: 'face', path: localPath });
-            
-            // Get file size for stats
-            try {
-              const fullPath = path.join(__dirname, '../..', localPath);
-              if (fs.existsSync(fullPath)) {
-                const stats = fs.statSync(fullPath);
-                totalDownloadSize += stats.size;
-              }
-            } catch (sizeError) {
-              logger.debug('Could not get downloaded file size', {
-                requestId,
-                applicationNumber: record.applicationNumber || record.hallTicket,
-                localPath,
-                error: sizeError.message
-              });
-            }
-          }
-
-          candidate.faceStatus = 'Completed';
-          candidate.capturedImagePath = localPath || candidate.capturedImagePath;
-          candidate.imageCaptureTimestamp = cloudFaceTimestamp ? cloudFaceTimestamp.toISOString() : candidate.imageCaptureTimestamp || new Date().toISOString();
-          candidate.cloudFaceId = record.face.id;
-          candidate.faceCloudPath = record.face.imageUrl;
-          changed = true;
-          detail.notes.push('Face biometric synced/updated from cloud');
-          
-          logger.info('Face biometric synced successfully', {
-            requestId,
-            applicationNumber: record.applicationNumber || record.hallTicket,
-            localPath,
-            cloudId: record.face.id
-          });
-        } else {
-          detail.notes.push('Face biometric already newer locally');
-        }
-      }
 
       // Process thumb biometric
       if (record.thumb) {
@@ -619,12 +596,69 @@ router.post('/trigger-immediate', async (req, res) => {
             hasTemplate: !!record.additionalDetails.TemplateBase64
           });
         }
+      } else if (record.hasBiometric) {
+        const hasLocalTemplateData = !!(
+          candidate.capturedThumbIsoTemplate ||
+          candidate.capturedThumbAnsiTemplate ||
+          candidate.ISOTemplateBase64 ||
+          candidate.TemplateBase64
+        );
+
+        if (hasAnyLocal && hasLocalTemplateData) {
+          const thumbSyncStatus = syncService.syncStateManager.getCandidateSyncStatus(candidateKey) || {};
+          const thumbLocalPath = candidate.biometricImagePath || thumbSyncStatus.thumb?.localPath || null;
+          const candidateTemplateData = {
+            ...candidate,
+            applicationNumber: candidateKey,
+            userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || candidate.hallTicket || '',
+            localImagePath: thumbLocalPath,
+            capturedThumbIsoTemplate: candidate.capturedThumbIsoTemplate || null,
+            capturedThumbAnsiTemplate: candidate.capturedThumbAnsiTemplate || null,
+            ISOTemplateBase64: candidate.ISOTemplateBase64 || candidate.capturedThumbIsoTemplate || null,
+            TemplateBase64: candidate.TemplateBase64 || candidate.capturedThumbAnsiTemplate || null
+          };
+
+          logger.info('Cloud has thumb but missing template data; uploading local template payload', {
+            requestId,
+            applicationNumber: candidateKey,
+            hasLocalTemplateData,
+            capturedThumbIsoTemplateExists: !!candidateTemplateData.capturedThumbIsoTemplate,
+            capturedThumbAnsiTemplateExists: !!candidateTemplateData.capturedThumbAnsiTemplate,
+            ISOTemplateBase64Exists: !!candidateTemplateData.ISOTemplateBase64,
+            TemplateBase64Exists: !!candidateTemplateData.TemplateBase64,
+            thumbLocalPath
+          });
+
+          const templateUploadResult = await syncService.syncBiometricData(candidateTemplateData, 'thumb', { force: true });
+          if (templateUploadResult.success) {
+            changed = true;
+            summary.totalUpdated += 1;
+            detail.synced = true;
+            detail.updated = true;
+            detail.notes.push('Uploaded local template details to cloud');
+
+            logger.info('Uploaded local template details to cloud', {
+              requestId,
+              applicationNumber: candidateKey,
+              cloudResult: templateUploadResult
+            });
+          } else {
+            detail.failed = true;
+            detail.notes.push(`Template-only upload failed: ${templateUploadResult.error}`);
+            summary.totalFailed += 1;
+
+            logger.warn('Template-only upload failed', {
+              requestId,
+              applicationNumber: candidateKey,
+              error: templateUploadResult.error
+            });
+          }
+        }
       }
 
       // Update biometric status
-      const faceComplete = candidate.faceStatus === 'Completed';
       const thumbComplete = candidate.thumbStatus === 'Completed';
-      candidate.biometricStatus = faceComplete && thumbComplete ? 'Completed' : (faceComplete || thumbComplete ? 'Partial' : candidate.biometricStatus || 'Pending');
+      candidate.biometricStatus = thumbComplete ? 'Completed' : candidate.biometricStatus || 'Pending';
 
       if (changed) {
         savedAny = true;

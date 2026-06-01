@@ -11,6 +11,7 @@ const CANDIDATES_DIR = path.join(DATA_DIR, 'candidates-data');
 const CANDIDATES_FILE = path.join(DATA_DIR, 'candidates.json');
 const CENTRE_INFO_FILE = path.join(DATA_DIR, 'centreInfo.json');
 const CANDIDATES_BIOMETRIC_FILE = path.join(DATA_DIR, 'candidate_biometric_details.json');
+const SYNC_STATE_FILE = path.join(DATA_DIR, 'sync-state.json');
 
 /**
  * Ensure data and uploads directories exist
@@ -31,41 +32,20 @@ async function ensureDataDir() {
 async function saveCandidates(candidates) {
   try {
     await ensureDataDir();
-    
-    // Include uploaded and live images (from JSON), but not captured images
+
+    const now = new Date().toISOString();
     const candidateData = candidates.map(c => ({
       id: c.id,
-      hallTicket: c.hallTicket,
+      applicationNumber: c.applicationNumber || c.hallTicket || c.userExamApplicationId || c.id || '',
       candidateName: c.candidateName,
       emailId: c.emailId,
-      phone: c.phone,
       gender: c.gender,
-      examId: c.examId,
-      userExamApplicationId: c.userExamApplicationId,
-      // Base64 images from JSON upload
-      // Status tracking
-      faceStatus: c.faceStatus,
-      thumbStatus: c.thumbStatus,
-      biometricStatus: c.biometricStatus,
-      // Image paths
-      uploadedImagePath: c.uploadedImagePath,
-      liveImagePath: c.liveImagePath,
-      capturedImagePath: c.capturedImagePath,
-      biometricImagePath: c.biometricImagePath,
-      // Essential Template Fields Only
-      ISOTemplateBase64: c.ISOTemplateBase64 || null,
-      TemplateBase64: c.TemplateBase64 || null,
-      // Centre details
-      centreCode: c.centreCode,
-      centreName: c.centreName,
-      city: c.city,
-      examDate: c.examDate || '',
-      // Timestamps
-      imageCaptureTimestamp: c.imageCaptureTimestamp,
-      thumbCaptureTimestamp: c.thumbCaptureTimestamp,
-      submitTimestamp: c.submitTimestamp
+      uploadedImagePath: c.uploadedImagePath || '',
+      uploadedSignaturePath: c.liveImagePath || c.uploadedSignaturePath || '',
+      created_at: c.created_at || c.createdAt || now,
+      updated_at: now
     }));
-    
+
     await fs.writeFile(CANDIDATES_FILE, JSON.stringify(candidateData, null, 2), 'utf8');
     logger.info('Candidates saved to disk', { count: candidates.length });
     return true;
@@ -100,12 +80,11 @@ async function loadCandidates() {
 async function saveCentreInfo(centreInfo, candidates = []) {
   try {
     await ensureDataDir();
-    
-    // Calculate candidate counts
+
+    const now = new Date().toISOString();
     const centreData = {
       centreCode: centreInfo.centreCode || '',
       centreName: centreInfo.centreName || '',
-      cityName: centreInfo.cityName || '',
       examDate: centreInfo.examDate || '',
       examSlot: centreInfo.examSlot || '',
       candidate_counts: {
@@ -113,11 +92,12 @@ async function saveCentreInfo(centreInfo, candidates = []) {
         completed: candidates.filter(c => c.biometricStatus === 'Completed').length,
         pending: candidates.filter(c => c.biometricStatus === 'Pending').length
       },
-      lastUpdated: new Date().toISOString()
+      created_at: centreInfo.created_at || centreInfo.createdAt || now,
+      updated_at: now
     };
-    
+
     await fs.writeFile(CENTRE_INFO_FILE, JSON.stringify(centreData, null, 2), 'utf8');
-    logger.info('Centre info saved to disk', { 
+    logger.info('Centre info saved to disk', {
       code: centreData.centreCode,
       totalCandidates: centreData.candidate_counts.total
     });
@@ -153,44 +133,24 @@ async function loadCentreInfo() {
 async function saveCandidatesBiometric(candidates) {
   try {
     await ensureDataDir();
-    // also ensure uploads data directory exists
     await fs.mkdir(UPLOADS_DATA_DIR, { recursive: true });
-    
-    // Save biometric data WITH base64 images for complete export
+
+    const now = new Date().toISOString();
     const biometricData = candidates.map(c => ({
       id: c.id,
-      hallTicket: c.hallTicket,
-      candidateName: c.candidateName,
-      emailId: c.emailId,
-      gender: c.gender,
-      userExamApplicationId: c.userExamApplicationId,
-      // Status tracking
-      faceStatus: c.faceStatus,
-      thumbStatus: c.thumbStatus,
-      biometricStatus: c.biometricStatus,
-      // Base64 image data (from JSON upload)
-      // Captured biometric data (base64)
-      faceCaptureData: c.faceCaptureData || null,  // Captured face image (base64)
-      thumbCaptureData: c.thumbCaptureData || null, // Fingerprint data (base64)
-      // Essential Template Fields Only
-      ISOTemplateBase64: c.ISOTemplateBase64 || null,
-      TemplateBase64: c.TemplateBase64 || null,
-      // Image file paths (for reference)
-      uploadedImagePath: c.uploadedImagePath,
-      liveImagePath: c.liveImagePath,
-      capturedImagePath: c.capturedImagePath,
-      biometricImagePath: c.biometricImagePath,
-      // Centre details
-      centreCode: c.centreCode,
-      centreName: c.centreName,
-      city: c.city,
-      examDate: c.examDate || '',
-      // Timestamps
-      imageCaptureTimestamp: c.imageCaptureTimestamp || null,
+      candidateId: c.id,
+      thumbStatus: c.thumbStatus || 'Pending',
+      biometricStatus: c.biometricStatus || 'Pending',
+      thumbCaptureData: c.thumbCaptureData || null,
+      capturedThumbIsoTemplate: c.capturedThumbIsoTemplate || null,
+      capturedThumbAnsiTemplate: c.capturedThumbAnsiTemplate || null,
+      capturedThumbImagePath: c.biometricImagePath || null,
       thumbCaptureTimestamp: c.thumbCaptureTimestamp || null,
-      submitTimestamp: c.submitTimestamp || null
+      submitTimestamp: c.submitTimestamp || null,
+      created_at: c.created_at || c.createdAt || now,
+      updated_at: now
     }));
-    
+
     await fs.writeFile(CANDIDATES_BIOMETRIC_FILE, JSON.stringify(biometricData, null, 2), 'utf8');
     logger.info('Biometric data saved to disk (with images)', { count: biometricData.length });
     return true;
@@ -227,6 +187,14 @@ async function clearAllData() {
     await saveCandidates([]);
     await saveCentreInfo({}, []);
     await saveCandidatesBiometric([]);
+    try {
+      await fs.unlink(SYNC_STATE_FILE);
+      logger.info('Cleared sync state file from disk');
+    } catch (err) {
+      if (err.code !== 'ENOENT') {
+        logger.warn('Failed to delete sync state file during clearAllData', { error: err.message });
+      }
+    }
     logger.info('All data cleared from disk');
     return true;
   } catch (error) {
@@ -243,13 +211,42 @@ async function initializeDataStore() {
     await ensureDataDir();
     const candidates = await loadCandidates();
     const centreInfo = await loadCentreInfo();
-    
-    logger.success('Data store initialized', { 
-      candidatesCount: candidates.length,
+    const biometricData = await loadCandidatesBiometric();
+
+    const biometricMap = new Map(
+      biometricData.map((item) => [String(item.candidateId || item.id || '').trim().toLowerCase(), item])
+    );
+
+    const mergedCandidates = candidates.map((candidate) => {
+      const lookupKey = String(candidate.id || candidate.applicationNumber || candidate.hallTicket || '').trim().toLowerCase();
+      const biometricRecord = biometricMap.get(lookupKey) || {};
+
+      return {
+        ...candidate,
+        uploadedImagePath: candidate.uploadedImagePath || '',
+        liveImagePath: candidate.uploadedSignaturePath || candidate.liveImagePath || '',
+        uploadedSignaturePath: candidate.uploadedSignaturePath || candidate.liveImagePath || '',
+        thumbStatus: biometricRecord.thumbStatus || candidate.thumbStatus || 'Pending',
+        biometricStatus: biometricRecord.biometricStatus || candidate.biometricStatus || 'Pending',
+        thumbCaptureData: biometricRecord.thumbCaptureData || candidate.thumbCaptureData || null,
+        capturedThumbIsoTemplate: biometricRecord.capturedThumbIsoTemplate || candidate.capturedThumbIsoTemplate || null,
+        capturedThumbAnsiTemplate: biometricRecord.capturedThumbAnsiTemplate || candidate.capturedThumbAnsiTemplate || null,
+        ISOTemplateBase64: biometricRecord.capturedThumbIsoTemplate || candidate.capturedThumbIsoTemplate || null,
+        TemplateBase64: biometricRecord.capturedThumbAnsiTemplate || candidate.capturedThumbAnsiTemplate || null,
+        biometricImagePath: biometricRecord.capturedThumbImagePath || candidate.biometricImagePath || '',
+        thumbCaptureTimestamp: biometricRecord.thumbCaptureTimestamp || candidate.thumbCaptureTimestamp || null,
+        submitTimestamp: biometricRecord.submitTimestamp || candidate.submitTimestamp || null,
+        created_at: candidate.created_at || candidate.createdAt || biometricRecord.created_at || biometricRecord.createdAt || new Date().toISOString(),
+        updated_at: biometricRecord.updated_at || biometricRecord.updatedAt || candidate.updated_at || candidate.updatedAt || new Date().toISOString()
+      };
+    });
+
+    logger.success('Data store initialized', {
+      candidatesCount: mergedCandidates.length,
       centreCode: centreInfo.centreCode || 'N/A'
     });
-    
-    return { candidates, centreInfo };
+
+    return { candidates: mergedCandidates, centreInfo };
   } catch (error) {
     logger.error('Failed to initialize data store', { error: error.message });
     return { candidates: [], centreInfo: {} };

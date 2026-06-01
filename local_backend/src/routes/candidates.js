@@ -29,7 +29,7 @@ const sanitizeCandidates = (candidateList) => {
 
 const normalizeCandidateKey = (candidate) => {
   if (!candidate || typeof candidate !== 'object') return '';
-  return String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || candidate.id || '')
+  return String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '')
     .trim()
     .toLowerCase();
 };
@@ -43,7 +43,7 @@ const findCandidateByKey = (key) => {
 };
 
 const getCandidateKey = (candidate) => {
-  return String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || candidate.id || '').trim();
+  return String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '').trim();
 };
 
 const getCandidateKeyLower = (candidate) => normalizeCandidateKey(candidate);
@@ -55,7 +55,7 @@ const getUniqueCandidateKeys = (candidateList) => {
 };
 
 const getCandidateLookupValue = (candidate) => {
-  return candidate.applicationNumber || candidate.userExamApplicationId || candidate.hallTicket || candidate.id || '';
+  return candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '';
 };
 
 const getCandidateLookupValueLower = (candidate) => String(getCandidateLookupValue(candidate)).trim().toLowerCase();
@@ -64,8 +64,7 @@ const byQueryMatch = (candidate, query) => {
   const normalizedQuery = normalizeQueryKey(query);
   if (!normalizedQuery) return false;
   const appValue = String(candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || '').toLowerCase();
-  const hallValue = String(candidate.hallTicket || '').toLowerCase();
-  return appValue.includes(normalizedQuery) || hallValue.includes(normalizedQuery);
+  return appValue.includes(normalizedQuery);
 };
 
 const getISTDateTime = () => {
@@ -129,19 +128,19 @@ const convertUtcToIST = (utcTimestamp) => {
   }
 })();
 
-// Get all candidate details by application number or hall ticket (with biometric data if available)
+// Get all candidate details by application number (with biometric data if available)
 router.get('/all', (req, res) => {
   try {
-    const { applicationNumber, hallTicket } = req.query;
-    const lookupKey = String(applicationNumber || hallTicket || '').trim();
+    const { applicationNumber } = req.query;
+    const lookupKey = String(applicationNumber || '').trim();
     const normalizedLookup = normalizeQueryKey(lookupKey);
 
-    logger.info('Fetching candidate details', { applicationNumber, hallTicket, ip: req.ip });
+    logger.info('Fetching candidate details', { applicationNumber, ip: req.ip });
 
     if (!normalizedLookup) {
       return res.status(400).json({
         successful: false,
-        message: 'Application number or hall ticket is required'
+        message: 'Application number is required'
       });
     }
 
@@ -215,8 +214,8 @@ router.get('/all/filters', (req, res) => {
     let filteredCandidates = [...candidates];
 
     // Apply filters if provided
-    if (filters.applicationNumber || filters.hallTicket) {
-      const query = String(filters.applicationNumber || filters.hallTicket || '').trim();
+    if (filters.applicationNumber) {
+      const query = String(filters.applicationNumber).trim();
       filteredCandidates = filteredCandidates.filter((c) => byQueryMatch(c, query));
     }
 
@@ -292,33 +291,29 @@ const resolveImageUrl = (imgPath) => {
 };
 
 const imgTag = (url) => {
-  if (!url) return '-';
-  return `<img src="${url}" alt="img" style="max-width:80px; max-height:60px; object-fit:contain;" />`;
+  if (!url) return '<span class="empty">—</span>';
+  return `<img src="${url}" alt="img" style="max-width:120px; max-height:120px; object-fit:contain;" />`;
 };
 
 const buildCandidateTableRows = (candidateList) => {
   return candidateList.map(c => {
-    const signatureImg = imgTag(resolveImageUrl(c.uploadedImagePath || c.liveImagePath));
-    const photoImg = imgTag(resolveImageUrl(c.liveImagePath || c.uploadedImagePath));
-    const capturedPhotoImg = imgTag(resolveImageUrl(c.capturedImagePath));
+    const signatureImg = imgTag(resolveImageUrl(c.liveImagePath || c.uploadedImagePath));
+    const photoImg = imgTag(resolveImageUrl(c.uploadedImagePath || c.liveImagePath));
     const capturedThumbImg = imgTag(resolveImageUrl(c.biometricImagePath));
+    const timestamps = [
+      convertUtcToIST(c.thumbCaptureTimestamp),
+      convertUtcToIST(c.submitTimestamp)
+    ].filter(Boolean).join('<br/>');
 
     return `
     <tr>
-      <td class="nowrap">${c.applicationNumber || c.hallTicket || '-'}</td>
-      <td>${c.candidateName || '-'}</td>
-      <td>${c.emailId || '-'}</td>
-      <td>${c.gender || '-'}</td>
+      <td class="nowrap">${c.applicationNumber || '-'}</td>
+      <td>${c.candidateName || '-'}<br/><span style="font-size:0.85rem; color:#4b5563;">${c.emailId || '-'}</span></td>
       <td>${signatureImg}</td>
       <td>${photoImg}</td>
-      <td>${capturedPhotoImg}</td>
       <td>${capturedThumbImg}</td>
       <td>${c.biometricStatus || '-'}</td>
-      <td class="nowrap small">
-        ${convertUtcToIST(c.imageCaptureTimestamp)}<br/>
-        ${convertUtcToIST(c.thumbCaptureTimestamp)}<br/>
-        ${convertUtcToIST(c.submitTimestamp)}
-      </td>
+      <td class="nowrap small">${timestamps || '-'}</td>
     </tr>
   `;
   }).join('');
@@ -328,10 +323,10 @@ const buildCandidateTableRows = (candidateList) => {
 router.get('/export/pdf', async (req, res) => {
   try {
     let filteredCandidates = [...candidates];
-    const { applicationNumber, hallTicket, candidateName, status } = req.query;
+    const { applicationNumber, candidateName, status } = req.query;
 
-    if (hallTicket || applicationNumber) {
-      const query = String(applicationNumber || hallTicket || '').trim();
+    if (applicationNumber) {
+      const query = String(applicationNumber).trim();
       filteredCandidates = filteredCandidates.filter((c) => byQueryMatch(c, query));
     }
     if (candidateName) {
@@ -342,8 +337,8 @@ router.get('/export/pdf', async (req, res) => {
     }
 
     const pdfBuffer = await pdfExporter.createBiometricPdf(filteredCandidates, {
+      centreCode: centreInfo.centreCode,
       centreName: centreInfo.centreName,
-      cityName: centreInfo.cityName,
       examSlot: centreInfo.examSlot
     });
 
@@ -485,19 +480,19 @@ router.get('/counts', (req, res) => {
   }
 });
 
-// Match candidate - simply check if hall ticket exists in uploaded data
+// Match candidate - simply check if application number exists in uploaded data
 router.get('/match', (req, res) => {
   try {
-    const { applicationNumber, hallTicket } = req.query;
-    const lookupKey = String(applicationNumber || hallTicket || '').trim();
+    const { applicationNumber } = req.query;
+    const lookupKey = String(applicationNumber || '').trim();
     const normalizedLookup = normalizeQueryKey(lookupKey);
     
-    logger.info('Checking if candidate exists', { applicationNumber, hallTicket, ip: req.ip });
+    logger.info('Checking if candidate exists', { applicationNumber, ip: req.ip });
 
     if (!normalizedLookup) {
       return res.status(400).json({
         successful: false,
-        message: 'Application number or hall ticket is required'
+        message: 'Application number is required'
       });
     }
 

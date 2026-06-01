@@ -126,6 +126,12 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
   };
 
   const handleFileUpload = async (file: File) => {
+    console.log('[MainLayout] Candidate ZIP upload triggered', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified
+    });
     setPendingUploadFile(file);
 
     try {
