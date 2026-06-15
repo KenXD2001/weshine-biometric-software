@@ -428,6 +428,35 @@ export const biometricService = {
     }
   },
 
+  submitWebcamCapture: async (applicationNumber: string, webcamData: string, captureTimestamp?: string, slot?: string, userExamApplicationId?: string): Promise<{ successful: boolean; message: string }> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/biometric-details/submit-webcam-capture`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          applicationNumber,
+          webcamData,
+          slot: slot || null,
+          userExamApplicationId: userExamApplicationId || null,
+          captureTimestamp: captureTimestamp || new Date().toISOString()
+        })
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || 'Failed to submit webcam capture');
+      }
+
+      return await response.json();
+    } catch (error: unknown) {
+      console.error('Webcam submit error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      return { successful: false, message: `Webcam submit failed: ${errorMessage}` };
+    }
+  },
+
 };
 
 // Re-export types for convenience

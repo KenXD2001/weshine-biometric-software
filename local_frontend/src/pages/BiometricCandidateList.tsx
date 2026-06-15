@@ -18,11 +18,13 @@ interface Candidate {
   uploadedImagePath?: string;
   liveImagePath?: string;
   biometricImagePath?: string;
+  webcamImagePath?: string;
   city?: string;
   examSlot?: string;
   slot?: string;
   centreCode: string;
   centreName: string;
+  webcamCaptureTimestamp?: string;
   thumbCaptureTimestamp?: string;
   submitTimestamp?: string;
   imageCapturedAt?: string;
@@ -77,11 +79,13 @@ const BiometricCandidateList: React.FC = () => {
           uploadedImagePath: candidate.uploadedImagePath,
           liveImagePath: candidate.liveImagePath,
           biometricImagePath: candidate.biometricImagePath,
+          webcamImagePath: candidate.webcamImagePath,
           city: candidate.city,
           examSlot: candidate.examSlot || candidate.slot || '',
           slot: candidate.slot || candidate.examSlot || '',
           centreCode: candidate.centreCode,
           centreName: candidate.centreName,
+          webcamCaptureTimestamp: candidate.webcamCaptureTimestamp,
           thumbCaptureTimestamp: candidate.thumbCaptureTimestamp,
           submitTimestamp: candidate.submitTimestamp
         }));
@@ -302,7 +306,7 @@ const BiometricCandidateList: React.FC = () => {
       setExportDropdownOpen(false);
 
       if (format === 'csv') {
-        const headers = ['Application Number', 'Candidate Name', 'Email', 'Uploaded Signature', 'Uploaded Photo', 'Captured Thumb', 'Status', 'Thumb Capture Timestamp', 'Submit Timestamp'];
+        const headers = ['Application Number', 'Candidate Name', 'Email', 'Uploaded Signature', 'Uploaded Photo', 'Captured Webcam', 'Captured Thumb', 'Status', 'Webcam Capture Timestamp', 'Thumb Capture Timestamp', 'Submit Timestamp'];
         const lines = [headers.join(',')];
         filteredCandidates.forEach(c => {
           const row = [
@@ -311,8 +315,10 @@ const BiometricCandidateList: React.FC = () => {
             c.emailId || '',
             c.liveImagePath || '',
             c.uploadedImagePath || '',
+            c.webcamImagePath || '',
             c.biometricImagePath || '',
             c.biometricStatus || '',
+            c.webcamCaptureTimestamp || '',
             c.thumbCaptureTimestamp || '',
             c.submitTimestamp || ''
           ].map(value => `"${String(value).replace(/"/g, '""')}"`);
@@ -621,6 +627,9 @@ const BiometricCandidateList: React.FC = () => {
                   Uploaded Photo
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
+                  Captured Webcam
+                </th>
+                <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
                   Captured Thumb
                 </th>
                 <th className="px-3 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">
@@ -659,6 +668,15 @@ const BiometricCandidateList: React.FC = () => {
                       ) : 'Not Available'}
                     </td>
                     <td className="px-3 py-2 text-xs text-slate-700 align-top">
+                      {candidate.webcamImagePath ? (
+                        <img
+                          src={resolveApiAsset(candidate.webcamImagePath)}
+                          alt="Captured Webcam"
+                          className="h-18 w-18 object-contain rounded"
+                        />
+                      ) : 'Not Captured'}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700 align-top">
                       {candidate.biometricImagePath ? (
                         <img
                           src={resolveApiAsset(candidate.biometricImagePath)}
@@ -669,6 +687,10 @@ const BiometricCandidateList: React.FC = () => {
                     </td>
                     <td className="px-3 py-2">{getStatusBadge(candidate.biometricStatus)}</td>
                     <td className="px-3 py-2 text-xs space-y-1">
+                      <div className="flex items-center gap-1 text-slate-600">
+                        <Camera className="w-3 h-3" />
+                        {formatTimestamp(candidate.webcamCaptureTimestamp)}
+                      </div>
                       <div className="flex items-center gap-1 text-slate-600">
                         <Fingerprint className="w-3 h-3" />
                         {formatTimestamp(candidate.thumbCaptureTimestamp)}

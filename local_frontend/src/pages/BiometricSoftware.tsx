@@ -6,7 +6,7 @@ import CandidateDetails from '../components/CandidateDetails';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ToastContainer from '../components/Toast/ToastContainer';
 import { useToast } from '../hooks/useToast';
-import { authService, biometricService, candidateService, uploadService } from '../services/api';
+import { biometricService, candidateService, uploadService } from '../services/api';
 
 type BiometricDeviceApiResponse = {
   ISOTemplateBase64?: string;
@@ -20,13 +20,10 @@ type BiometricDeviceApiResponse = {
 };
 
 const BiometricSoftware: React.FC = () => {
-  // Get user data for initial state
-  const userData = authService.getUser();
-  
-  const [centreCode, setCentreCode] = useState(userData?.centreCode || '');
-  const [centreName, setCentreName] = useState(userData?.centreName || '');
-  const [examDate, setExamDate] = useState(userData?.examDate || '');
-  const [examSlot, setExamSlot] = useState(userData?.examSlot || '');
+  const [centreCode, setCentreCode] = useState('');
+  const [centreName, setCentreName] = useState('');
+  const [examDate, setExamDate] = useState('');
+  const [examSlot, setExamSlot] = useState('');
   const [applicationNumber, setApplicationNumber] = useState('');
   const [candidateName, setCandidateName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,17 +33,20 @@ const BiometricSoftware: React.FC = () => {
   const [capturedImages, setCapturedImages] = useState({
     signature: false,
     uploaded: false,
-    thumb: false
+    thumb: false,
+    webcam: false
   });
   const [imagePaths, setImagePaths] = useState({
     uploadedImagePath: '',
     signatureImagePath: '',
-    biometricImagePath: ''
+    biometricImagePath: '',
+    webcamImagePath: ''
   });
   const [candidateSlot, setCandidateSlot] = useState('');
   const [candidateApplicationId, setCandidateApplicationId] = useState('');
   const [thumbTemplate, setThumbTemplate] = useState({ isoTemplateBase64: '', templateBase64: '' });
   const [thumbCaptureTimestamp, setThumbCaptureTimestamp] = useState('');
+  const [webcamCaptureTimestamp, setWebcamCaptureTimestamp] = useState('');
   const [deviceApiResponse, setDeviceApiResponse] = useState<BiometricDeviceApiResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -54,21 +54,19 @@ const BiometricSoftware: React.FC = () => {
     try {
       const result = await candidateService.getCentreInfo();
       if (result.successful && result.data) {
-        setCentreCode(result.data.centreCode || userData?.centreCode || '');
-        setCentreName(result.data.centreName || userData?.centreName || '');
-        setExamDate(result.data.examDate || userData?.examDate || '');
-        setExamSlot(result.data.examSlot || userData?.examSlot || '');
+        setCentreCode(result.data.centreCode || '');
+        setCentreName(result.data.centreName || '');
+        setExamDate(result.data.examDate || '');
+        setExamSlot(result.data.examSlot || '');
       }
     } catch (error) {
-      console.warn('Failed to load centre info, using login user data fallback', error);
+      console.warn('Failed to load centre info', error);
     }
-  }, [userData]);
+  }, []);
 
   useEffect(() => {
     loadCentreInfo();
-  }, [loadCentreInfo]);
 
-  useEffect(() => {
     const handleCandidateDataUpdated = () => {
       loadCentreInfo();
     };
@@ -80,7 +78,7 @@ const BiometricSoftware: React.FC = () => {
   const { toasts, success: toastSuccess, error: toastError, warning: toastWarning, info: toastInfo, removeToast } = useToast();
 
   const handleCapture = (
-    type: 'signature' | 'uploaded' | 'thumb',
+    type: 'signature' | 'uploaded' | 'thumb' | 'webcam',
     imageData?: string,
     templateData?: { isoTemplateBase64?: string; templateBase64?: string },
     captureTimestamp?: string,
@@ -111,6 +109,17 @@ const BiometricSoftware: React.FC = () => {
         } else {
           setThumbCaptureTimestamp(new Date().toISOString());
         }
+      } else if (type === 'webcam') {
+        setImagePaths(prev => ({
+          ...prev,
+          webcamImagePath: imageData
+        }));
+
+        if (captureTimestamp) {
+          setWebcamCaptureTimestamp(captureTimestamp);
+        } else {
+          setWebcamCaptureTimestamp(new Date().toISOString());
+        }
       } else if (type === 'uploaded') {
         setImagePaths(prev => ({
           ...prev,
@@ -139,8 +148,21 @@ const BiometricSoftware: React.FC = () => {
     setIsSubmitting(true);
 
     try {
+      let webcamResult;
       let thumbResult;
 
+      // Submit webcam capture first if available
+      if (imagePaths.webcamImagePath && imagePaths.webcamImagePath.startsWith('data:')) {
+        webcamResult = await biometricService.submitWebcamCapture(
+          submitApplicationNumber,
+          imagePaths.webcamImagePath,
+          webcamCaptureTimestamp || undefined,
+          candidateSlot || examSlot || undefined,
+          candidateApplicationId || undefined
+        );
+      }
+
+      // Then submit thumb capture if available
       if (imagePaths.biometricImagePath && imagePaths.biometricImagePath.startsWith('data:')) {
         thumbResult = await biometricService.submitThumbCapture(
           submitApplicationNumber,
@@ -152,16 +174,20 @@ const BiometricSoftware: React.FC = () => {
           candidateSlot || examSlot || undefined,
           candidateApplicationId || undefined
         );
-      } else {
-        toastInfo('No Thumb Capture', 'No captured thumb data available yet.');
       }
 
-      if (thumbResult?.successful) {
-        toastSuccess('Biometric Submission', 'Thumb data submitted successfully.');
+      const webcamSubmitted = webcamResult?.successful;
+      const thumbSubmitted = thumbResult?.successful;
+
+      if (webcamSubmitted || thumbSubmitted) {
+        const parts = [];
+        if (webcamSubmitted) parts.push('webcam');
+        if (thumbSubmitted) parts.push('thumb');
+        toastSuccess('Biometric Submission', `${parts.join(' & ')} data submitted successfully.`);
         window.dispatchEvent(new Event('candidateDataUpdated'));
         handleNewCandidate();
       } else {
-        toastError('Submission Failed', 'No biometric thumb data was submitted. Ensure thumb capture is complete.');
+        toastError('Submission Failed', 'No biometric data was submitted. Ensure webcam and/or thumb capture is complete.');
       }
 
     } catch (error: unknown) {
@@ -174,20 +200,19 @@ const BiometricSoftware: React.FC = () => {
   };
 
   const handleNewCandidate = () => {
-    // Reset everything to allow fresh candidate input / fetch
-    console.log('New candidate');
     setIsCandidateLoaded(false);
     setApplicationNumber('');
     setCandidateName('');
     setEmail('');
     setGender('');
     setThumb('');
-    setCapturedImages({ signature: false, uploaded: false, thumb: false });
-    setImagePaths({ uploadedImagePath: '', signatureImagePath: '', biometricImagePath: '' });
+    setCapturedImages({ signature: false, uploaded: false, thumb: false, webcam: false });
+    setImagePaths({ uploadedImagePath: '', signatureImagePath: '', biometricImagePath: '', webcamImagePath: '' });
     setCandidateSlot('');
     setCandidateApplicationId('');
     setThumbTemplate({ isoTemplateBase64: '', templateBase64: '' });
     setThumbCaptureTimestamp('');
+    setWebcamCaptureTimestamp('');
     setDeviceApiResponse(null);
   };
 
@@ -212,8 +237,8 @@ const BiometricSoftware: React.FC = () => {
         setGender('');
         setThumb('');
         setIsCandidateLoaded(false);
-        setCapturedImages({ signature: false, uploaded: false, thumb: false });
-        setImagePaths({ uploadedImagePath: '', signatureImagePath: '', biometricImagePath: '' });
+        setCapturedImages({ signature: false, uploaded: false, thumb: false, webcam: false });
+        setImagePaths({ uploadedImagePath: '', signatureImagePath: '', biometricImagePath: '', webcamImagePath: '' });
         toastSuccess('Reset successful', 'System reset completed. Please upload candidate data again.');
       } else {
         toastError('Reset failed', result?.message || 'Could not reset system.');
@@ -242,6 +267,7 @@ const BiometricSoftware: React.FC = () => {
           uploadedImagePath={imagePaths.uploadedImagePath}
           signatureImagePath={imagePaths.signatureImagePath}
           biometricImagePath={imagePaths.biometricImagePath}
+          webcamImagePath={imagePaths.webcamImagePath}
           handleCapture={handleCapture}
         />
       </div>

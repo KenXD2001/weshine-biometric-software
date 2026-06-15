@@ -74,49 +74,20 @@ router.post('/login', async (req, res) => {
       });
 
 
-      // Extract centreCode and centreName if present
-      const user = cloudResponse.data.data.user || {};
-      const centreCode = user.centreCode || null;
-      const centreName = user.centreName || null;
-      const city = user.city || user.cityName || null;
-
-      // Persist centre info received from cloud during login (do not overwrite centre metadata from uploads)
-      if (centreCode) {
-        try {
-          const candidatesModule = require('./candidates');
-          const existingCentreInfo = candidatesModule.getCentreInfo() || {};
-
-          candidatesModule.setCentreInfo({
-            code: centreCode,
-            name: centreName || existingCentreInfo.name || '',
-            city: city || existingCentreInfo.city || '',
-            examSlot: existingCentreInfo.examSlot || ''
-          });
-
-          logger.info('Stored centre info from cloud login', { centreCode, centreName, city });
-        } catch (err) {
-          logger.warn('Failed to persist centre info from login', { error: err.message });
-        }
-      }
-
       // Transform cloud backend response to match frontend expectations
       const transformedResponse = {
         successful: cloudResponse.data.success === true,
         message: cloudResponse.data.message,
         data: {
           api_token: cloudResponse.data.data.token,
-          user,
-          centreCode,
-          centreName
+          user: cloudResponse.data.data.user || {}
         }
       };
 
-      logger.info('📤 Sending transformed response to frontend', {
+      logger.info('Sending transformed response to frontend', {
         success: transformedResponse.successful,
         hasApiToken: !!transformedResponse.data.api_token,
         hasUser: !!transformedResponse.data.user,
-        centreCode: transformedResponse.data.centreCode,
-        centreName: transformedResponse.data.centreName,
         responseSize: JSON.stringify(transformedResponse).length,
         timestamp: new Date().toISOString()
       });

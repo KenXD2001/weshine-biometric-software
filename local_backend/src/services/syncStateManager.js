@@ -284,6 +284,7 @@ class SyncStateManager {
     const stats = {
       byBiometricType: {
         face: { synced: 0, failed: 0, pending: 0 },
+        webcam: { synced: 0, failed: 0, pending: 0 },
         thumb: { synced: 0, failed: 0, pending: 0 }
       },
       byHour: {},
@@ -293,6 +294,9 @@ class SyncStateManager {
     Object.entries(this.syncState.syncStatus).forEach(([candidateKey, biometrics]) => {
       Object.entries(biometrics).forEach(([biometricType, status]) => {
         // Update biometric type stats
+        if (!stats.byBiometricType[biometricType]) {
+          stats.byBiometricType[biometricType] = { synced: 0, failed: 0, pending: 0 };
+        }
         if (status.synced) {
           stats.byBiometricType[biometricType].synced++;
         } else if (status.retryCount >= 3) {

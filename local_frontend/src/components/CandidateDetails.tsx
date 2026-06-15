@@ -13,12 +13,12 @@ interface CandidateDetailsProps {
   setGender: (value: string) => void;
   thumb: string;
   setThumb: (value: string) => void;
-  setImagePaths: (paths: { uploadedImagePath: string; signatureImagePath: string; biometricImagePath: string; }) => void;
-  setCapturedImages: (images: { signature: boolean; uploaded: boolean; thumb: boolean; }) => void;
+  setImagePaths: (paths: { uploadedImagePath: string; signatureImagePath: string; biometricImagePath: string; webcamImagePath: string }) => void;
+  setCapturedImages: (images: { signature: boolean; uploaded: boolean; thumb: boolean; webcam: boolean }) => void;
   onCandidateLoaded: (loaded: boolean) => void;
   onSubmit: (applicationNumber: string) => void;
   isSubmitting: boolean;
-  capturedImages: { signature: boolean; uploaded: boolean; thumb: boolean; };
+  capturedImages: { signature: boolean; uploaded: boolean; thumb: boolean; webcam: boolean };
   onNewCandidate: () => void;
   onResetSystem: () => void;
   onCandidateMetadataLoaded: (metadata: { slot: string; userExamApplicationId: string }) => void;
@@ -54,7 +54,7 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
   const searchTimeoutRef = useRef<number | null>(null);
 
   const canNewCandidate = Boolean(applicationNumber.trim() || candidateName.trim() || email.trim());
-  const canSubmitBiometrics = capturedImages.thumb;
+  const canSubmitBiometrics = capturedImages.thumb || capturedImages.webcam;
   const isNewCandidateEnabled = canNewCandidate; // explicit alias for clarity
   // Search application numbers from API with debouncing
   const searchApplicationNumbers = async (query: string) => {
@@ -109,13 +109,15 @@ const CandidateDetails: React.FC<CandidateDetailsProps> = ({
         setImagePaths({
           uploadedImagePath: candidate.uploadedImagePath || '',
           signatureImagePath: candidate.liveImagePath || '',
-          biometricImagePath: candidate.biometricImagePath || ''
+          biometricImagePath: candidate.biometricImagePath || '',
+          webcamImagePath: candidate.webcamImagePath || ''
         });
 
         setCapturedImages({
-          signature: !!candidate.liveImagePath, // Show signature check if liveImagePath exists
-          uploaded: !!candidate.uploadedImagePath, // Show uploaded check if uploadedImagePath exists
-          thumb: !!candidate.biometricImagePath // Show thumb check if biometricImagePath exists
+          signature: !!candidate.liveImagePath,
+          uploaded: !!candidate.uploadedImagePath,
+          webcam: !!candidate.webcamImagePath,
+          thumb: !!candidate.biometricImagePath
         });
 
         onCandidateLoaded(true);
