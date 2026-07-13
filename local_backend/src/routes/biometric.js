@@ -97,6 +97,7 @@ async function syncBiometricDataToCloud(biometricPayload) {
       examId: biometricPayload.examId,
       userExamApplicationId: biometricPayload.userExamApplicationId,
       timestamp: biometricPayload.timestamp,
+      submitTimestamp: biometricPayload.submitTimestamp || null,
       localBackendId: biometricPayload.localBackendId,
       // Essential Template Fields Only
       ISOTemplateBase64: biometricPayload.ISOTemplateBase64,
@@ -308,6 +309,7 @@ router.post('/submit-webcam-capture', async (req, res) => {
           examId: candidate.examId || '',
           userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
           timestamp: candidate.webcamCaptureTimestamp,
+          submitTimestamp: candidate.submitTimestamp || null,
           faceData: null,
           thumbData: webcamData || null,
           localImagePath: webcamImagePath
@@ -460,6 +462,7 @@ router.post('/submit-thumb-capture', async (req, res) => {
           examId: candidate.examId || '',
           userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
           timestamp: candidate.thumbCaptureTimestamp,
+          submitTimestamp: candidate.submitTimestamp || null,
           faceData: null,
           thumbData: thumbData || null,
           webcamData: candidate.webcamCaptureData || null,
@@ -716,6 +719,7 @@ router.post('/sync-all-to-cloud', async (req, res) => {
           
           // Sync Metadata
           timestamp: candidate.thumbCaptureTimestamp || new Date().toISOString(),
+          submitTimestamp: candidate.submitTimestamp || null,
           localBackendId: process.env.LOCAL_BACKEND_ID || 'local-biometric-center-1'
         });
         

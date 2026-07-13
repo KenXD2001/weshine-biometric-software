@@ -200,6 +200,7 @@ class SyncService {
         examSlot: candidateData.examSlot || '',
         examId: candidateData.examId || '',
         userExamApplicationId: candidateData.userExamApplicationId || candidateKey,
+        submitTimestamp: candidateData.submitTimestamp || null,
         ISOTemplateBase64: candidateData.capturedThumbIsoTemplate || candidateData.ISOTemplateBase64 || null,
         TemplateBase64: candidateData.capturedThumbAnsiTemplate || candidateData.TemplateBase64 || null
       };
@@ -450,6 +451,7 @@ class SyncService {
           examId: candidate.examId,
           userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || '',
           timestamp: candidate.timestamp,
+          submitTimestamp: candidate.submitTimestamp || null,
           webcamData: candidate.webcamCaptureData || null,
           thumbData: candidate.thumbCaptureData || null,
           ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
