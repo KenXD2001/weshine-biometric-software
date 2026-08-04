@@ -148,12 +148,16 @@ export const authService = {
 
 // Upload service functions
 export const uploadService = {
-  uploadCandidateData: async (file: File, uploadMode: 'replace' | 'merge' = 'replace'): Promise<{ successful: boolean; message: string; data?: unknown }> => {
+  uploadCandidateData: async (file: File, uploadMode: 'replace' | 'merge' = 'replace', password: string = ''): Promise<{ successful: boolean; message: string; data?: unknown }> => {
     const formData = new FormData();
     formData.append('file', file);
     
     const token = authService.getToken();
-    const response = await fetch(createApiUrl(`${API_ENDPOINTS.UPLOAD}?fileType=ZIP&uploadMode=${uploadMode}`), {
+    let url = createApiUrl(`${API_ENDPOINTS.UPLOAD}?fileType=ZIP&uploadMode=${uploadMode}`);
+    if (password) {
+      url += `&password=${encodeURIComponent(password)}`;
+    }
+    const response = await fetch(url, {
       method: 'POST',
       headers: {
         'Authorization': token ? `Bearer ${token}` : '',

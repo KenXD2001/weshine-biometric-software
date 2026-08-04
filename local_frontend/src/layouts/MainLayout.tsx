@@ -30,6 +30,7 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isUploadModeModalOpen, setIsUploadModeModalOpen] = useState(false);
   const [pendingUploadFile, setPendingUploadFile] = useState<File | null>(null);
+  const [pendingPassword, setPendingPassword] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [user, setUser] = useState<UserData | null>(null);
   const { toasts, success, error, removeToast } = useToast();
@@ -100,11 +101,11 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
     setIsUploadModalOpen(true);
   };
 
-  const doUpload = async (file: File, mode: 'replace' | 'merge') => {
+  const doUpload = async (file: File, mode: 'replace' | 'merge', password: string = '') => {
     setIsUploading(true);
 
     try {
-      const response = await uploadService.uploadCandidateData(file, mode);
+      const response = await uploadService.uploadCandidateData(file, mode, password);
 
       if (response.successful) {
         success('Upload Complete', response.message || 'Candidates uploaded successfully.');
@@ -125,14 +126,16 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
     }
   };
 
-  const handleFileUpload = async (file: File) => {
+  const handleFileUpload = async (file: File, password: string = '') => {
     console.log('[MainLayout] Candidate ZIP upload triggered', {
       name: file.name,
       size: file.size,
       type: file.type,
-      lastModified: file.lastModified
+      lastModified: file.lastModified,
+      hasPassword: !!password
     });
     setPendingUploadFile(file);
+    setPendingPassword(password);
 
     try {
       const result = await candidateService.getCandidateCounts('');
@@ -143,11 +146,11 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
         return;
       }
 
-      await doUpload(file, 'replace');
+      await doUpload(file, 'replace', password);
     } catch (err) {
       console.error('Candidate count check failed', err);
       // fallback to direct upload
-      await doUpload(file, 'replace');
+      await doUpload(file, 'replace', password);
     }
   };
 
@@ -189,14 +192,14 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
         {/* Center - Title */}
         <div className="absolute left-1/2 transform -translate-x-1/2 hidden sm:block">
           <p className="text-lg uppercase font-semibold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent text-center whitespace-nowrap">
-            WeShineTech Biometric Software
+            Digi Parikshak Biometric Software
           </p>
         </div>
 
         {/* Mobile Title */}
         <div className="sm:hidden absolute left-1/2 transform -translate-x-1/2">
           <h1 className="text-xs font-semibold text-gray-900 text-center">
-            WeShineTech
+            Digi Parikshak
           </h1>
         </div>
 
@@ -297,12 +300,12 @@ export default function MainLayout({ children, onLogout }: MainLayoutProps) {
         onClose={() => setIsUploadModeModalOpen(false)}
         onReplace={() => {
           if (pendingUploadFile) {
-            doUpload(pendingUploadFile, 'replace');
+            doUpload(pendingUploadFile, 'replace', pendingPassword);
           }
         }}
         onMerge={() => {
           if (pendingUploadFile) {
-            doUpload(pendingUploadFile, 'merge');
+            doUpload(pendingUploadFile, 'merge', pendingPassword);
           }
         }}
       />
