@@ -284,7 +284,6 @@ class SyncStateManager {
     const stats = {
       byBiometricType: {
         face: { synced: 0, failed: 0, pending: 0 },
-        webcam: { synced: 0, failed: 0, pending: 0 },
         thumb: { synced: 0, failed: 0, pending: 0 }
       },
       byHour: {},

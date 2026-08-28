@@ -372,35 +372,6 @@ router.post('/trigger-immediate', async (req, res) => {
         thumbLocalPath
       });
 
-      if ((!record.face || !record.hasBiometric) && candidate.webcamStatus === 'Completed') {
-        logger.info('Attempting cloud upload for missing webcam biometric', {
-          requestId,
-          applicationNumber: candidateKey,
-          webcamLocalPath: candidate.webcamImagePath,
-          hasWebcamData: !!candidate.webcamCaptureData
-        });
-
-        syncService.syncStateManager.updateSyncStatus(candidateKey, 'webcam', {
-          synced: false,
-          error: null,
-          retryCount: syncStatus.webcam?.retryCount || 0,
-          localPath: candidate.webcamImagePath
-        });
-
-        candidateData.localImagePath = candidate.webcamImagePath;
-        candidateData.webcamData = candidate.webcamCaptureData || null;
-        const webcamResult = await syncService.syncBiometricData(candidateData, 'webcam');
-        if (webcamResult.success) {
-          updated = true;
-          detail.synced = true;
-          detail.updated = true;
-          detail.notes.push('Webcam biometric uploaded to cloud');
-        } else {
-          detail.failed = true;
-          detail.notes.push(`Webcam upload failed: ${webcamResult.error}`);
-        }
-      }
-
       if ((!record.thumb || !record.hasBiometric) && candidate.thumbStatus === 'Completed') {
         logger.info('Attempting cloud upload for missing thumb biometric', {
           requestId,
@@ -515,13 +486,12 @@ router.post('/trigger-immediate', async (req, res) => {
 
       const beforeStatus = {
         face: candidate.faceStatus,
-        webcam: candidate.webcamStatus,
         thumb: candidate.thumbStatus,
         biometricStatus: candidate.biometricStatus
       };
 
       let changed = false;
-      const hasAnyLocal = candidate.thumbStatus === 'Completed' || candidate.webcamStatus === 'Completed';
+      const hasAnyLocal = candidate.thumbStatus === 'Completed';
 
       if (!record.hasBiometric) {
         const uploaded = await syncMissingCloudData(candidate, record, detail);
@@ -537,69 +507,12 @@ router.post('/trigger-immediate', async (req, res) => {
       logger.debug('Processing candidate biometric sync', {
         requestId,
         applicationNumber: candidateKey,
-        hasWebcam: !!record.face,
         hasThumb: !!record.thumb,
         hasTemplate: !!record.additionalDetails,
         beforeStatus
       });
 
-      const localWebcamTimestamp = getTimestampValue(candidate.webcamCaptureTimestamp);
       const localThumbTimestamp = getTimestampValue(candidate.thumbCaptureTimestamp);
-
-      // Process webcam biometric
-      if (record.face) {
-        const cloudWebcamTimestamp = getTimestampValue(record.face.captured_at || record.face.updated_at || record.face.created_at);
-        const shouldUpdateWebcam = !candidate.webcamStatus || candidate.webcamStatus !== 'Completed' || (cloudWebcamTimestamp && localWebcamTimestamp && cloudWebcamTimestamp > localWebcamTimestamp);
-
-        if (shouldUpdateWebcam) {
-          logger.debug('Syncing webcam biometric from cloud', {
-            requestId,
-            applicationNumber: record.applicationNumber || record.hallTicket,
-            cloudTimestamp: cloudWebcamTimestamp?.toISOString(),
-            localTimestamp: localWebcamTimestamp?.toISOString(),
-            reason: !candidate.webcamStatus ? 'No local webcam' : (cloudWebcamTimestamp > localWebcamTimestamp ? 'Cloud is newer' : 'Local update needed')
-          });
-
-          const localPath = record.face.imageUrl && !record.face.imageUrl.startsWith('local:')
-            ? await downloadCloudImage(record.face.imageUrl, record.applicationNumber || record.hallTicket, 'webcam')
-            : record.face.imageUrl;
-
-          if (localPath && localPath !== record.face.imageUrl) {
-            totalDownloadedImages++;
-            detail.downloadedImages.push({ type: 'webcam', path: localPath });
-            try {
-              const fullPath = path.join(__dirname, '../..', localPath);
-              if (fs.existsSync(fullPath)) {
-                const stats = fs.statSync(fullPath);
-                totalDownloadSize += stats.size;
-              }
-            } catch (sizeError) {
-              logger.debug('Could not get downloaded file size', {
-                requestId,
-                applicationNumber: record.applicationNumber || record.hallTicket,
-                localPath,
-                error: sizeError.message
-              });
-            }
-          }
-
-          candidate.webcamStatus = 'Completed';
-          candidate.webcamImagePath = localPath || candidate.webcamImagePath;
-          candidate.webcamCaptureTimestamp = cloudWebcamTimestamp ? cloudWebcamTimestamp.toISOString() : candidate.webcamCaptureTimestamp || new Date().toISOString();
-          candidate.cloudWebcamId = record.face.id;
-          changed = true;
-          detail.notes.push('Webcam biometric synced/updated from cloud');
-
-          logger.info('Webcam biometric synced successfully', {
-            requestId,
-            applicationNumber: record.applicationNumber || record.hallTicket,
-            localPath,
-            cloudId: record.face.id
-          });
-        } else {
-          detail.notes.push('Webcam biometric already newer locally');
-        }
-      }
 
       // Process thumb biometric
       if (record.thumb) {
@@ -743,10 +656,9 @@ router.post('/trigger-immediate', async (req, res) => {
         }
       }
 
-      // Update biometric status - both webcam and thumb must be completed
-      const webcamComplete = candidate.webcamStatus === 'Completed';
+      // Update biometric status once thumb is completed
       const thumbComplete = candidate.thumbStatus === 'Completed';
-      candidate.biometricStatus = (webcamComplete && thumbComplete) ? 'Completed' : candidate.biometricStatus || 'Pending';
+      candidate.biometricStatus = thumbComplete ? 'Completed' : candidate.biometricStatus || 'Pending';
 
       if (changed) {
         savedAny = true;

@@ -4,7 +4,6 @@ Professional biometric verification system for examinations built with Electron.
 
 ## Features
 
-- **Face Recognition** - Real-time face matching with AI
 - **Fingerprint Capture** - Mantra MFS100 device integration
 - **Candidate Management** - Upload, verify, and track candidates
 - **Offline Operation** - No internet required
@@ -19,8 +18,6 @@ Professional biometric verification system for examinations built with Electron.
 - **UI Library**: Bootstrap 5.3
 - **Build Tool**: Vite 4.4
 - **Language**: TypeScript
-- **Face Recognition**: face-api.js (TensorFlow.js)
-- **Webcam**: react-webcam
 - **State Management**: React Hooks
 - **HTTP Client**: Axios
 - **Notifications**: Sonner (toast), SweetAlert2 (modals)
@@ -47,15 +44,6 @@ Professional biometric verification system for examinations built with Electron.
 ### Biometric Devices
 - **Fingerprint**: Mantra MFS100
 - **API**: Mantra MFS100 RD Service local HTTP endpoint
-- **Face Detection**: TinyFaceDetector (face-api.js)
-- **Face Recognition**: FaceRecognitionNet (128-dimensional descriptors)
-- **Matching Algorithm**: Euclidean distance comparison
-
-### AI/ML Models
-- **TinyFaceDetector** - Fast face detection
-- **FaceLandmark68Net** - 68-point facial landmark detection
-- **FaceRecognitionNet** - Face descriptor extraction
-- **Model Source**: face-api.js pre-trained models
 
 ## Mantra MFS100 Configuration
 
@@ -79,7 +67,6 @@ If your installation exposes a different RD Service URL, update `VITE_BIOMETRIC_
 - **Processor**: Intel Core i3 or equivalent
 
 ### Hardware
-- **Webcam**: Built-in or USB (720p minimum)
 - **Fingerprint Device**: Mantra MFS100
 - **USB Ports**: USB 2.0/3.0
 
@@ -146,7 +133,6 @@ digi-biometric-software/
 │       └── candidates/{hallTicket}/
 │           ├── uploaded.png    # From JSON
 │           ├── live.png        # From JSON
-│           ├── captured.png    # Webcam capture
 │           └── biometric.bmp   # Fingerprint
 │
 ├── frontend/                    # React frontend
@@ -214,7 +200,6 @@ Distribute: `Digi Biometric System-Setup-1.0.0.exe`
 **User Requirements:**
 - Windows 10+ (64-bit)
 - SecuGen device driver installed
-- Webcam connected
 
 **Installation:**
 1. Run installer as Administrator
@@ -230,8 +215,6 @@ Distribute: `Digi Biometric System-Setup-1.0.0.exe`
 | TypeScript | 5.3 | Type safety |
 | Vite | 4.4 | Build tool & dev server |
 | Bootstrap | 5.3 | UI components |
-| face-api.js | 0.22 | Face recognition (TensorFlow.js) |
-| react-webcam | 7.2 | Webcam access |
 | Axios | 1.6 | HTTP client |
 | Sonner | 1.4 | Toast notifications |
 | SweetAlert2 | 11.11 | Modal dialogs |
@@ -262,11 +245,6 @@ Distribute: `Digi Biometric System-Setup-1.0.0.exe`
 ### Biometric Integration
 | Component | Technology | Details |
 |-----------|------------|---------|
-| Face Recognition | face-api.js | TensorFlow.js-based, runs in browser |
-| Face Detection | TinyFaceDetector | Lightweight, fast detection |
-| Face Landmarks | FaceLandmark68Net | 68-point facial feature detection |
-| Face Descriptors | FaceRecognitionNet | 128-dimensional face embeddings |
-| Matching | Euclidean Distance | Distance threshold: 0.25 (excellent), 0.38 (acceptable) |
 | Fingerprint Capture | Mantra MFS100 RD Service | HTTP REST API (localhost:11100) |
 | Device Support | Mantra MFS100 | MFS100 optical scanner |
 
@@ -281,7 +259,6 @@ Distribute: `Digi Biometric System-Setup-1.0.0.exe`
 ### Image Processing
 - **Uploaded Images**: Base64 → PNG conversion
 - **Live Images**: Base64 → PNG conversion
-- **Webcam Capture**: PNG format via canvas API
 - **Fingerprint**: BMP format from SecuGen device
 - **Organization**: One folder per candidate by hall ticket
 

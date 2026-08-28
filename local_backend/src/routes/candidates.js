@@ -18,7 +18,7 @@ let centreInfo = {
 
 const sanitizeCandidate = (candidate) => {
   if (!candidate || typeof candidate !== 'object') return candidate;
-  const { faceCaptureData, webcamCaptureData, thumbCaptureData, ...rest } = candidate;
+  const { faceCaptureData, thumbCaptureData, ...rest } = candidate;
   return rest;
 };
 
@@ -299,10 +299,8 @@ const buildCandidateTableRows = (candidateList) => {
   return candidateList.map(c => {
     const signatureImg = imgTag(resolveImageUrl(c.liveImagePath || c.uploadedImagePath));
     const photoImg = imgTag(resolveImageUrl(c.uploadedImagePath || c.liveImagePath));
-    const capturedWebcamImg = imgTag(resolveImageUrl(c.webcamImagePath));
     const capturedThumbImg = imgTag(resolveImageUrl(c.biometricImagePath));
     const timestamps = [
-      convertUtcToIST(c.webcamCaptureTimestamp),
       convertUtcToIST(c.thumbCaptureTimestamp),
       convertUtcToIST(c.submitTimestamp)
     ].filter(Boolean).join('<br/>');
@@ -313,7 +311,6 @@ const buildCandidateTableRows = (candidateList) => {
       <td>${c.candidateName || '-'}<br/><span style="font-size:0.85rem; color:#4b5563;">${c.emailId || '-'}</span></td>
       <td>${signatureImg}</td>
       <td>${photoImg}</td>
-      <td>${capturedWebcamImg}</td>
       <td>${capturedThumbImg}</td>
       <td>${c.biometricStatus || '-'}</td>
       <td class="nowrap small">${timestamps || '-'}</td>
