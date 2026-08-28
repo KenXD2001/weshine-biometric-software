@@ -4,6 +4,7 @@ const router = express.Router();
 const logger = require('../config/logger');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 const imageStorage = require('../utils/imageStorage');
 const AdmZip = require('adm-zip');
 
@@ -359,7 +360,7 @@ router.post('/file', upload.single('file'), (req, res) => {
       hallTicket: req.query.hallTicket,
       matchPercentage: req.query.matchPercentage
     });
-    const { fileType, hallTicket, matchPercentage, uploadMode = 'replace' } = req.query;
+    const { fileType, hallTicket, matchPercentage, uploadMode = 'replace', password } = req.query;
     const sanitizedUploadMode = (uploadMode || 'replace').toString().toLowerCase();
     const file = req.file;
 
@@ -368,6 +369,7 @@ router.post('/file', upload.single('file'), (req, res) => {
       hallTicket,
       matchPercentage,
       uploadMode: sanitizedUploadMode,
+      hasPassword: !!password,
       fileName: file?.originalname,
       fileSize: file?.size,
       ip: req.ip
@@ -401,7 +403,7 @@ router.post('/file', upload.single('file'), (req, res) => {
 
     // Process based on file type
     if (fileType === 'ZIP') {
-      return processCandidateZIP(req, res, file, sanitizedUploadMode);
+      return processCandidateZIP(req, res, file, sanitizedUploadMode, password);
     } else if (fileType === 'IMAGE') {
       return processBiometricImage(req, res, file, hallTicket, matchPercentage);
     } else {
@@ -494,11 +496,11 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
     // Use stored centre info from candidates module if available.
     // Do NOT use any hard-coded/mock centre defaults here.
-    let centreInfo = candidatesModule.getCentreInfo() || { code: '', name: '', cityName: '', examDate: '', examSlot: '' };
+    let centreInfo = candidatesModule.getCentreInfo() || { centreCode: '', centreName: '', cityName: '', examDate: '', examSlot: '' };
     const tokenCentreInfo = getCentreInfoFromRequestAuth(req);
     if (tokenCentreInfo) {
-      centreInfo.code = centreInfo.code || tokenCentreInfo.code;
-      centreInfo.name = centreInfo.name || tokenCentreInfo.name;
+      centreInfo.centreCode = centreInfo.centreCode || tokenCentreInfo.code;
+      centreInfo.centreName = centreInfo.centreName || tokenCentreInfo.name;
       centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city;
     }
 
@@ -555,12 +557,12 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
         // Update centre information from JSON if provided
         if (jsonData.centre && jsonData.centre.code) {
-          centreInfo.code = jsonData.centre.code;
-          centreInfo.name = jsonData.centre.name || centreInfo.name || '';
+          centreInfo.centreCode = jsonData.centre.code;
+          centreInfo.centreName = jsonData.centre.name || centreInfo.centreName || '';
           centreInfo.cityName = jsonData.centre.city || jsonData.centre.cityName || centreInfo.cityName || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
           centreInfo.examDate = jsonData.centre.examDate || centreInfo.examDate || '';
-        } else if (!centreInfo || !centreInfo.code) {
+        } else if (!centreInfo || !centreInfo.centreCode) {
           // No centre info available from JSON or stored data
           throw new Error('Centre information missing in uploaded JSON and no stored centre assigned. Please login to assign a centre or include centre metadata in the upload.');
         }
@@ -593,7 +595,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
       resolveCandidateCentreCode(candidate, '').trim().length > 0
     );
     if (firstCandidateWithCentreCode) {
-      centreInfo.code = resolveCandidateCentreCode(firstCandidateWithCentreCode, '').trim();
+      centreInfo.centreCode = resolveCandidateCentreCode(firstCandidateWithCentreCode, '').trim();
     }
 
     const firstCandidateWithExamSlot = candidates.find((candidate) =>
@@ -610,13 +612,13 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
       centreInfo.examDate = resolveCandidateExamDate(firstCandidateWithExamDate, '').trim();
     }
 
-    if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
-      centreInfo.code = tokenCentreInfo.code;
-      centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
+    if ((!centreInfo || !String(centreInfo.centreCode || '').trim()) && tokenCentreInfo?.code) {
+      centreInfo.centreCode = tokenCentreInfo.code;
+      centreInfo.centreName = centreInfo.centreName || tokenCentreInfo.name || '';
       centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city || '';
     }
 
-    if (!centreInfo || !String(centreInfo.code || '').trim()) {
+    if (!centreInfo || !String(centreInfo.centreCode || '').trim()) {
       return res.status(400).json({
         successful: false,
         message: 'Centre information not available in uploaded data. Please ensure uploaded data includes Centre Code, Centre Name, Exam Date, and Exam Slot metadata.'
@@ -631,15 +633,15 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
       : '';
 
     const centreNameEqualsCity =
-      String(centreInfo.name || '').trim().toLowerCase() !== '' &&
-      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.cityName || '').trim().toLowerCase();
+      String(centreInfo.centreName || '').trim().toLowerCase() !== '' &&
+      String(centreInfo.centreName || '').trim().toLowerCase() === String(centreInfo.cityName || '').trim().toLowerCase();
 
-    if (inferredCentreName && (!centreInfo.name || centreNameEqualsCity)) {
-      centreInfo.name = inferredCentreName;
+    if (inferredCentreName && (!centreInfo.centreName || centreNameEqualsCity)) {
+      centreInfo.centreName = inferredCentreName;
     }
     
     // Persist centre info only if we have a valid centre code (comes from JSON or stored data)
-    if (centreInfo && centreInfo.code) {
+    if (centreInfo && centreInfo.centreCode) {
       candidatesModule.setCentreInfo(centreInfo);
     }
 
@@ -728,9 +730,9 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
         
         // Create candidate object with face and thumb status tracking
         const normalizedEmail = candidate.emailId || candidate.email || candidate.Email || candidate.EmailId || candidate.emailid;
-        const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
+        const resolvedCandidateCentreCode = centreInfo.centreCode || resolveCandidateCentreCode(candidate, centreInfo.centreCode);
         const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
-        const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
+        const resolvedCentreName = centreInfo.centreName || resolveCandidateCentreName(candidate, centreInfo.centreName);
         const resolvedCandidateCity = centreInfo.cityName || resolveCandidateCity(candidate, centreInfo.cityName);
         const candidateObj = {
           id: candidateId,
@@ -801,8 +803,8 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
       totalCandidates: candidates.length,
       successful: successCount,
       failed: failedCandidates.length,
-      centreCode: centreInfo.code,
-      centreName: centreInfo.name,
+      centreCode: centreInfo.centreCode,
+      centreName: centreInfo.centreName,
       examSlot: centreInfo.examSlot,
       ip: req.ip
     });
@@ -830,7 +832,7 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
 
     res.json({
       successful: true,
-      message: `Successfully processed ${successCount} candidates from ${centreInfo.name}`,
+      message: `Successfully processed ${successCount} candidates from ${centreInfo.centreName}`,
       data: {
         processedCount: jsonData.centre.candidates.length,
         successfulCount: successCount,
@@ -859,8 +861,30 @@ async function processCandidateFile(req, res, file, uploadMode = 'replace') {
   }
 }
 
+function decryptBiometricZip(encryptedBuffer, password) {
+  const appSecret = process.env.APP_ENCRYPTION_SECRET;
+  if (!password || !appSecret) {
+    return encryptedBuffer;
+  }
+
+  if (encryptedBuffer.length < 44) {
+    throw new Error('Invalid encrypted file: too short');
+  }
+
+  const salt = encryptedBuffer.subarray(0, 16);
+  const iv = encryptedBuffer.subarray(16, 28);
+  const authTag = encryptedBuffer.subarray(28, 44);
+  const encryptedData = encryptedBuffer.subarray(44);
+
+  const key = crypto.pbkdf2Sync(password + appSecret, salt, 100000, 32, 'sha512');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, iv);
+  decipher.setAuthTag(authTag);
+
+  return Buffer.concat([decipher.update(encryptedData), decipher.final()]);
+}
+
 // Process candidate ZIP file
-async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
+async function processCandidateZIP(req, res, file, uploadMode = 'replace', password = null) {
   // Use proper upload directory path like multer configuration
   let uploadBaseDir;
   if (process.env.NODE_ENV === 'production' && process.resourcesPath) {
@@ -908,6 +932,21 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
     // Create extraction directory
     if (!fs.existsSync(extractionDir)) {
       fs.mkdirSync(extractionDir, { recursive: true });
+    }
+
+    // Decrypt ZIP file if password is provided
+    if (password) {
+      logger.info('Decrypting biometric ZIP file');
+      try {
+        const encryptedBuffer = fs.readFileSync(file.path);
+        const decryptedBuffer = decryptBiometricZip(encryptedBuffer, password);
+        const decryptedPath = file.path + '.decrypted';
+        fs.writeFileSync(decryptedPath, decryptedBuffer);
+        file.path = decryptedPath;
+        logger.info('Biometric ZIP decrypted successfully');
+      } catch (decryptError) {
+        throw new Error(`Failed to decrypt biometric ZIP: ${decryptError.message}`);
+      }
     }
 
     // Extract ZIP file
@@ -1167,11 +1206,11 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
         }
 
         if (jsonData.centre && jsonData.centre.code) {
-          centreInfo.code = jsonData.centre.code;
-          centreInfo.name = jsonData.centre.name || centreInfo.name || '';
+          centreInfo.centreCode = jsonData.centre.code;
+          centreInfo.centreName = jsonData.centre.name || centreInfo.centreName || '';
           centreInfo.cityName = jsonData.centre.city || jsonData.centre.cityName || centreInfo.cityName || '';
           centreInfo.examSlot = jsonData.centre.examSlot || centreInfo.examSlot || '';
-        } else if (!centreInfo || !centreInfo.code) {
+        } else if (!centreInfo || !centreInfo.centreCode) {
           throw new Error('Centre information missing in uploaded JSON and no stored centre assigned. Please login to assign a centre or include centre metadata in the upload.');
         }
         
@@ -1200,7 +1239,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       resolveCandidateCentreCode(candidate, '').trim().length > 0
     );
     if (firstCandidateWithCentreCode) {
-      centreInfo.code = resolveCandidateCentreCode(firstCandidateWithCentreCode, '').trim();
+      centreInfo.centreCode = resolveCandidateCentreCode(firstCandidateWithCentreCode, '').trim();
     }
 
     const firstCandidateWithExamSlot = candidates.find((candidate) =>
@@ -1217,13 +1256,13 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       centreInfo.examDate = resolveCandidateExamDate(firstCandidateWithExamDate, '').trim();
     }
 
-    if ((!centreInfo || !String(centreInfo.code || '').trim()) && tokenCentreInfo?.code) {
-      centreInfo.code = tokenCentreInfo.code;
-      centreInfo.name = centreInfo.name || tokenCentreInfo.name || '';
+    if ((!centreInfo || !String(centreInfo.centreCode || '').trim()) && tokenCentreInfo?.code) {
+      centreInfo.centreCode = tokenCentreInfo.code;
+      centreInfo.centreName = centreInfo.centreName || tokenCentreInfo.name || '';
       centreInfo.cityName = centreInfo.cityName || tokenCentreInfo.city || '';
     }
 
-    if (!centreInfo || !String(centreInfo.code || '').trim()) {
+    if (!centreInfo || !String(centreInfo.centreCode || '').trim()) {
       return res.status(400).json({
         successful: false,
         message: 'Centre information not available in uploaded data. Please ensure uploaded data includes Centre Code, Centre Name, Exam Date, and Exam Slot metadata.'
@@ -1238,11 +1277,11 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       : '';
 
     const centreNameEqualsCity =
-      String(centreInfo.name || '').trim().toLowerCase() !== '' &&
-      String(centreInfo.name || '').trim().toLowerCase() === String(centreInfo.cityName || '').trim().toLowerCase();
+      String(centreInfo.centreName || '').trim().toLowerCase() !== '' &&
+      String(centreInfo.centreName || '').trim().toLowerCase() === String(centreInfo.cityName || '').trim().toLowerCase();
 
-    if (inferredCentreName && (!centreInfo.name || centreNameEqualsCity)) {
-      centreInfo.name = inferredCentreName;
+    if (inferredCentreName && (!centreInfo.centreName || centreNameEqualsCity)) {
+      centreInfo.centreName = inferredCentreName;
     }
 
     // Update centre info
@@ -1367,9 +1406,9 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
           liveImagePath = copyImageFromZIP(signatureFilePath, extractionDir, candidateId, 'signature');
         }
 
-        const resolvedCandidateCentreCode = centreInfo.code || resolveCandidateCentreCode(candidate, centreInfo.code);
+        const resolvedCandidateCentreCode = centreInfo.centreCode || resolveCandidateCentreCode(candidate, centreInfo.centreCode);
         const resolvedCandidateExamSlot = centreInfo.examSlot || resolveCandidateExamSlot(candidate, centreInfo.examSlot);
-        const resolvedCentreName = centreInfo.name || resolveCandidateCentreName(candidate, centreInfo.name);
+        const resolvedCentreName = centreInfo.centreName || resolveCandidateCentreName(candidate, centreInfo.centreName);
         const resolvedCandidateCity = centreInfo.cityName || resolveCandidateCity(candidate, centreInfo.cityName);
         const candidateObj = {
           id: candidateId,
@@ -1435,7 +1474,7 @@ async function processCandidateZIP(req, res, file, uploadMode = 'replace') {
       totalCandidates: candidates.length,
       successful: successCount,
       failed: failedCandidates.length,
-      centreCode: centreInfo.code,
+      centreCode: centreInfo.centreCode,
       ip: req.ip
     });
 
@@ -1633,7 +1672,7 @@ router.post('/reset-system', async (req, res) => {
     
     // Clear all candidate data (in-memory) and centre info for a full reset
     candidatesModule.clearCandidates();
-    candidatesModule.setCentreInfo({ code: '', name: '', examSlot: '' });
+    candidatesModule.setCentreInfo({ centreCode: '', centreName: '', examSlot: '' });
 
     // Delete all app data files from /data
     const dataDir = path.join(__dirname, '../../data');

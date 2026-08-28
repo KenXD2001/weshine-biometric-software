@@ -4,8 +4,6 @@ export interface LoginResponse {
   data: {
     api_token: string;
     user: UserData;
-    centreCode?: string;
-    centreName?: string;
   };
 }
 

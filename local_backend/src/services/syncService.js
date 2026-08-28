@@ -131,15 +131,20 @@ class SyncService {
 
       if (!imageFilePath) {
         if (candidateData.faceData && biometricType === 'face') {
-          // Fallback: create image from base64 data
           imageFilePath = this.prepareImageFile(candidateData.faceData, 'face', candidateKey);
           logger.debug('Created image file from base64', {
             applicationNumber: candidateKey,
             biometricType,
             imagePath: imageFilePath
           });
+        } else if (candidateData.webcamData && biometricType === 'webcam') {
+          imageFilePath = this.prepareImageFile(candidateData.webcamData, 'webcam', candidateKey);
+          logger.debug('Created image file from base64', {
+            applicationNumber: candidateKey,
+            biometricType,
+            imagePath: imageFilePath
+          });
         } else if (candidateData.thumbData && biometricType === 'thumb') {
-          // Fallback: create image from base64 data
           imageFilePath = this.prepareImageFile(candidateData.thumbData, 'thumb', candidateKey);
           logger.debug('Created image file from base64', {
             applicationNumber: candidateKey,
@@ -152,6 +157,7 @@ class SyncService {
             biometricType,
             hasLocalPath: !!candidateData.localImagePath,
             hasFaceData: !!candidateData.faceData,
+            hasWebcamData: !!candidateData.webcamData,
             hasThumbData: !!candidateData.thumbData
           });
         }
@@ -194,6 +200,7 @@ class SyncService {
         examSlot: candidateData.examSlot || '',
         examId: candidateData.examId || '',
         userExamApplicationId: candidateData.userExamApplicationId || candidateKey,
+        submitTimestamp: candidateData.submitTimestamp || null,
         ISOTemplateBase64: candidateData.capturedThumbIsoTemplate || candidateData.ISOTemplateBase64 || null,
         TemplateBase64: candidateData.capturedThumbAnsiTemplate || candidateData.TemplateBase64 || null
       };
@@ -444,6 +451,8 @@ class SyncService {
           examId: candidate.examId,
           userExamApplicationId: candidate.userExamApplicationId || candidate.applicationNumber || candidate.id || '',
           timestamp: candidate.timestamp,
+          submitTimestamp: candidate.submitTimestamp || null,
+          webcamData: candidate.webcamCaptureData || null,
           thumbData: candidate.thumbCaptureData || null,
           ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
           TemplateBase64: candidate.TemplateBase64 || null,
@@ -472,6 +481,20 @@ class SyncService {
         if (!candidateKey) continue;
 
         const syncStatus = this.syncStateManager.getCandidateSyncStatus(candidateKey) || {};
+
+        // Enqueue webcam sync if local webcam is complete but cloud record is missing
+        if (candidate.webcamStatus === 'Completed' && !candidate.cloudWebcamId) {
+          const webcamStatus = syncStatus.webcam || {};
+          if (!webcamStatus.synced) {
+            this.syncStateManager.updateSyncStatus(candidateKey, 'webcam', {
+              localPath: candidate.webcamImagePath || webcamStatus.localPath || null,
+              synced: false,
+              error: null,
+              retryCount: webcamStatus.retryCount || 0,
+              syncId: webcamStatus.syncId
+            });
+          }
+        }
 
         // Enqueue thumb sync if local thumb is complete but cloud record is missing
         if (candidate.thumbStatus === 'Completed' && !candidate.cloudThumbId) {

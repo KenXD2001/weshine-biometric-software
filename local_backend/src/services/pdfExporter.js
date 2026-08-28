@@ -179,18 +179,21 @@ const buildCandidateTableRows = (candidateList) => {
   const rowsHtml = candidateList.map((c, index) => {
     const signatureUrl = resolveImageUrl(c.liveImagePath);
     const photoUrl = resolveImageUrl(c.uploadedImagePath);
+    const capturedWebcamUrl = resolveImageUrl(c.webcamImagePath);
     const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
 
     const hasSignature = !!signatureUrl;
     const hasPhoto = !!photoUrl;
+    const hasCapturedWebcam = !!capturedWebcamUrl;
     const hasCapturedThumb = !!capturedThumbUrl;
 
     // Format timestamps for display (one per line as in original)
+    const webcamTime = convertUtcToIST(c.webcamCaptureTimestamp);
     const thumbTime = convertUtcToIST(c.thumbCaptureTimestamp);
     const submitTime = convertUtcToIST(c.submitTimestamp);
     
     // Build timestamp string with line breaks
-    const timestamps = [thumbTime, submitTime]
+    const timestamps = [webcamTime, thumbTime, submitTime]
       .filter(t => t !== '-')
       .join('\n');
 
@@ -199,6 +202,7 @@ const buildCandidateTableRows = (candidateList) => {
       applicationNumber: c.applicationNumber,
       hasSignature,
       hasPhoto,
+      hasCapturedWebcam,
       hasCapturedThumb
     });
 
@@ -211,6 +215,7 @@ const buildCandidateTableRows = (candidateList) => {
         <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${escapeHtml(c.candidateName || '-')}<br/><span style="font-size:0.85rem; color:#4b5563;">${emailLine}</span></td>
         <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasSignature ? imgTag(signatureUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
         <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasPhoto ? imgTag(photoUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
+        <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasCapturedWebcam ? imgTag(capturedWebcamUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
         <td data-type="image" style="vertical-align: middle; padding: 10px; text-align: center; width: 150px; max-width: 180px;">${hasCapturedThumb ? imgTag(capturedThumbUrl) : '<span class="empty" style="color:#4b5563; font-style:italic;">—</span>'}</td>
         <td style="vertical-align: top; padding: 10px; font-size: 0.93rem; color: #111827; line-height: 1.4;">${statusLabel}</td>
         <td style="vertical-align: top; padding: 10px; white-space: pre-line; font-size: 0.85rem; color: #4b5563; line-height: 1.4;">${escapeHtml(timestamps) || '-'}</td>
@@ -538,6 +543,7 @@ const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
           <col />
           <col />
           <col />
+          <col />
         </colgroup>
         <thead>
           <tr>
@@ -545,9 +551,10 @@ const DEFAULT_TEMPLATE_HTML = `<!DOCTYPE html>
             <th>Candidate Name / Email</th>
             <th>Uploaded Signature</th>
             <th>Uploaded Photo</th>
+            <th>Captured Webcam</th>
             <th>Captured Thumb</th>
             <th>Status</th>
-            <th>Thumb & Submit Timing</th>
+            <th>Webcam, Thumb & Submit Timing</th>
           </tr>
         </thead>
         <tbody id="reportBody">
@@ -569,7 +576,7 @@ const loadTemplateHtml = () => {
       return DEFAULT_TEMPLATE_HTML;
     }
     const headerCount = countMatches(template, /<th\b/gi);
-    if (headerCount !== 7) {
+    if (headerCount !== 8) {
       logger.warn('PDF template header column count mismatch, using built-in template', { templatePath: TEMPLATE_PATH, headerCount });
       return DEFAULT_TEMPLATE_HTML;
     }
@@ -784,8 +791,10 @@ const createTextOnlyPdf = (candidateList) => {
     const tableData = candidateList.map(c => {
       const signatureUrl = resolveImageUrl(c.liveImagePath);
       const photoUrl = resolveImageUrl(c.uploadedImagePath);
+      const capturedWebcamUrl = resolveImageUrl(c.webcamImagePath);
       const capturedThumbUrl = resolveImageUrl(c.biometricImagePath);
       const timestamps = [
+        convertUtcToIST(c.webcamCaptureTimestamp),
         convertUtcToIST(c.thumbCaptureTimestamp),
         convertUtcToIST(c.submitTimestamp)
       ].filter(t => t !== '-').join('\n');
@@ -795,13 +804,14 @@ const createTextOnlyPdf = (candidateList) => {
         `${c.candidateName || '-'}\n${c.emailId || '-'}`,
         signatureUrl ? '[Img]' : '-',
         photoUrl ? '[Img]' : '-',
+        capturedWebcamUrl ? '[Img]' : '-',
         capturedThumbUrl ? '[Img]' : '-',
         c.biometricStatus || '-',
         timestamps || '-',
       ];
     });
 
-    const headerColumns = 7;
+    const headerColumns = 8;
     const bodyRows = tableData.length;
     const bodyColumns = bodyRows * headerColumns;
     logger.info('Text-only PDF export table dimensions', {
@@ -817,9 +827,10 @@ const createTextOnlyPdf = (candidateList) => {
         'Candidate Name / Email',
         'Uploaded Signature',
         'Uploaded Photo',
+        'Captured Webcam',
         'Captured Thumb',
         'Status',
-        'Thumb & Submit Timing'
+        'Webcam, Thumb & Submit Timing'
       ]],
       body: tableData,
       startY: 24,
@@ -833,16 +844,18 @@ const createTextOnlyPdf = (candidateList) => {
         2: { halign: 'center', cellWidth: 35 },
         3: { halign: 'center', cellWidth: 35 },
         4: { halign: 'center', cellWidth: 35 },
+        5: { halign: 'center', cellWidth: 35 },
       },
       didDrawCell: function(data) {
         const { cell, column, row, section } = data;
-        if (section === 'body' && [2, 3, 4].includes(column.index)) {
+        if (section === 'body' && [2, 3, 4, 5].includes(column.index)) {
           const candidate = candidateList[row.index];
           if (!candidate) return;
           let imgUrl = null;
           if (column.index === 2) imgUrl = resolveImageUrl(candidate.liveImagePath);
           if (column.index === 3) imgUrl = resolveImageUrl(candidate.uploadedImagePath);
-          if (column.index === 4) imgUrl = resolveImageUrl(candidate.biometricImagePath);
+          if (column.index === 4) imgUrl = resolveImageUrl(candidate.webcamImagePath);
+          if (column.index === 5) imgUrl = resolveImageUrl(candidate.biometricImagePath);
           if (imgUrl && imgUrl.startsWith('data:')) {
             try {
               const { x, y, width, height } = cell;

@@ -1,11 +1,11 @@
 import React, { useState, useRef } from 'react';
-import { X, Upload, File } from 'lucide-react';
+import { X, Upload, File, Eye, EyeOff } from 'lucide-react';
 import Button from './ui/Button';
 
 interface UploadCandidateDataModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onUpload: (file: File) => void;
+  onUpload: (file: File, password: string) => void;
   isUploading?: boolean;
 }
 
@@ -17,6 +17,8 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
 }) => {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -85,15 +87,17 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
         name: selectedFile.name,
         size: selectedFile.size,
         type: selectedFile.type,
-        lastModified: selectedFile.lastModified
+        lastModified: selectedFile.lastModified,
+        hasPassword: !!password
       });
-      onUpload(selectedFile);
+      onUpload(selectedFile, password);
       handleClose();
     }
   };
 
   const handleClose = () => {
     setSelectedFile(null);
+    setPassword('');
     setError('');
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
@@ -193,6 +197,36 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
           )}
 
 
+          {/* Decryption Password */}
+          <div className="mt-4">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Decryption Password
+            </label>
+            <div className="relative">
+              <input
+                type={showPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password to decrypt biometric data"
+                className="w-full px-3 py-2 pr-10 rounded-lg border border-gray-300 bg-white text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md hover:bg-gray-100 transition-colors"
+              >
+                {showPassword ? (
+                  <EyeOff className="h-4 w-4 text-gray-400" />
+                ) : (
+                  <Eye className="h-4 w-4 text-gray-400" />
+                )}
+              </button>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              Required only for password-protected biometric export files
+            </p>
+          </div>
+
           {/* Error Message */}
           {error && (
             <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg">
@@ -221,7 +255,7 @@ const UploadCandidateDataModal: React.FC<UploadCandidateDataModalProps> = ({
             variant="primary"
             size="md"
             onClick={handleUpload}
-            disabled={!selectedFile || !!error || isUploading}
+            disabled={!selectedFile || !password || !!error || isUploading}
           >
             {isUploading ? 'Uploading...' : 'Upload'}
           </Button>

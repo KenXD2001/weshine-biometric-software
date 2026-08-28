@@ -160,9 +160,9 @@ Returns server status, uptime, and environment information.
 The application currently uses mock data for demonstration. In production, replace the mock data with actual database connections.
 
 ### Login Credentials
-- Username: `info@digiparikshak.com`
-- Password: `password`
-- Role: `invigilator`
+- Email: `your-email@example.com`
+- Password: `your-password`
+- Role: Configured per user
 
 > **Note**: Simple authentication (no JWT, no password hashing) for development ease.
 

@@ -74,7 +74,8 @@ async function syncBiometricDataToCloud(biometricPayload) {
       captureType: biometricPayload.captureType,
       cloudUrl: cloudBackendUrl,
       hasFaceImage: !!biometricPayload.faceImagePath,
-      hasThumbImage: !!biometricPayload.thumbImagePath
+      hasThumbImage: !!biometricPayload.thumbImagePath,
+      hasWebcamImage: !!biometricPayload.webcamImagePath
     });
 
     // Prepare FormData for multipart upload
@@ -96,6 +97,7 @@ async function syncBiometricDataToCloud(biometricPayload) {
       examId: biometricPayload.examId,
       userExamApplicationId: biometricPayload.userExamApplicationId,
       timestamp: biometricPayload.timestamp,
+      submitTimestamp: biometricPayload.submitTimestamp || null,
       localBackendId: biometricPayload.localBackendId,
       // Essential Template Fields Only
       ISOTemplateBase64: biometricPayload.ISOTemplateBase64,
@@ -118,6 +120,7 @@ async function syncBiometricDataToCloud(biometricPayload) {
 
     const faceImageFile = resolveLocalImagePath(biometricPayload.faceImagePath);
     const thumbImageFile = resolveLocalImagePath(biometricPayload.thumbImagePath);
+    const webcamImageFile = resolveLocalImagePath(biometricPayload.webcamImagePath);
 
     const pushTemp = (filePath) => {
       if (filePath) tempFiles.push(filePath);
@@ -126,6 +129,7 @@ async function syncBiometricDataToCloud(biometricPayload) {
 
     let resolvedFaceImageFile = faceImageFile;
     let resolvedThumbImageFile = thumbImageFile;
+    let resolvedWebcamImageFile = webcamImageFile;
 
     if (!resolvedFaceImageFile && biometricPayload.faceData) {
       resolvedFaceImageFile = pushTemp(base64ToImageFile(biometricPayload.faceData, 'face'));
@@ -143,6 +147,14 @@ async function syncBiometricDataToCloud(biometricPayload) {
       });
     }
 
+    if (!resolvedWebcamImageFile && biometricPayload.webcamData) {
+      resolvedWebcamImageFile = pushTemp(base64ToImageFile(biometricPayload.webcamData, 'webcam'));
+      logger.info('Created temp webcam image file from base64', {
+        applicationNumber: biometricPayload.applicationNumber,
+        tempFilePath: resolvedWebcamImageFile
+      });
+    }
+
     if (resolvedFaceImageFile) {
       logger.info('Using resolved face image file for sync', {
         faceImagePath: biometricPayload.faceImagePath,
@@ -157,6 +169,14 @@ async function syncBiometricDataToCloud(biometricPayload) {
         resolvedPath: resolvedThumbImageFile
       });
       formData.append('thumbImage', fs.createReadStream(resolvedThumbImageFile));
+    }
+
+    if (resolvedWebcamImageFile) {
+      logger.info('Using resolved webcam image file for sync', {
+        webcamImagePath: biometricPayload.webcamImagePath,
+        resolvedPath: resolvedWebcamImageFile
+      });
+      formData.append('webcamImage', fs.createReadStream(resolvedWebcamImageFile));
     }
 
     const response = await axios.post(
@@ -209,6 +229,115 @@ async function syncBiometricDataToCloud(biometricPayload) {
     });
   }
 }
+
+// Submit webcam capture data
+router.post('/submit-webcam-capture', async (req, res) => {
+  try {
+    const { webcamData, applicationNumber, slot, userExamApplicationId, captureTimestamp } = req.body;
+
+    const lookupKey = applicationNumber || userExamApplicationId || '';
+
+    logger.info('Submitting webcam capture', {
+      applicationNumber,
+      hasWebcamData: !!webcamData,
+      ip: req.ip
+    });
+
+    if (!webcamData || !lookupKey) {
+      return res.status(400).json({
+        successful: false,
+        message: 'Webcam data and application number are required'
+      });
+    }
+
+    const candidatesModule = require('./candidates');
+    const candidates = candidatesModule.getCandidates();
+    const normalizedLookup = String(lookupKey).trim().toLowerCase();
+    const candidate = candidates.find((c) => {
+      const candidateKey = String(c.applicationNumber || c.userExamApplicationId || c.id || '').trim().toLowerCase();
+      return candidateKey === normalizedLookup;
+    });
+
+    if (!candidate) {
+      return res.status(404).json({
+        successful: false,
+        message: 'Candidate not found'
+      });
+    }
+
+    const candidateIdentifier = candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || lookupKey;
+    const webcamImagePath = imageStorage.saveBase64Image(webcamData, candidateIdentifier, 'webcam');
+
+    candidate.webcamCaptureData = webcamData;
+    candidate.webcamImagePath = webcamImagePath;
+    candidate.webcamStatus = 'Completed';
+
+    candidate.webcamCaptureTimestamp = req.body.captureTimestamp || new Date().toISOString();
+
+    if (candidate.webcamStatus === 'Completed' && candidate.thumbStatus === 'Completed') {
+      candidate.biometricStatus = 'Completed';
+      candidate.submitTimestamp = candidate.submitTimestamp || new Date().toISOString();
+    }
+
+    await candidatesModule.saveToDisk();
+
+    logger.success('Webcam capture submitted successfully', {
+      applicationNumber: candidate.applicationNumber || candidate.userExamApplicationId || candidate.id
+    });
+
+    (async () => {
+      try {
+        const syncIdentifier = candidate.applicationNumber || candidate.userExamApplicationId || candidate.id || lookupKey;
+        syncService.syncStateManager.updateSyncStatus(syncIdentifier, 'webcam', {
+          synced: false,
+          error: null,
+          retryCount: 0,
+          localPath: webcamImagePath
+        });
+
+        const candidateData = {
+          applicationNumber: syncIdentifier,
+          id: candidate.id,
+          candidateName: candidate.candidateName,
+          emailId: candidate.emailId,
+          phone: candidate.phone || '',
+          gender: candidate.gender || 'other',
+          centreCode: candidate.centreCode || (require('./candidates').getCentreInfo().code || ''),
+          centreName: candidate.centreName || (require('./candidates').getCentreInfo().name || ''),
+          examSlot: candidate.examSlot || candidate.slot || (require('./candidates').getCentreInfo().examSlot || ''),
+          slot: slot || candidate.slot || candidate.examSlot || (require('./candidates').getCentreInfo().examSlot || ''),
+          examId: candidate.examId || '',
+          userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
+          timestamp: candidate.webcamCaptureTimestamp,
+          submitTimestamp: candidate.submitTimestamp || null,
+          faceData: null,
+          thumbData: webcamData || null,
+          localImagePath: webcamImagePath
+        };
+
+        await syncService.syncBiometricData(candidateData, 'webcam', { force: true });
+      } catch (syncError) {
+        logger.error('Webcam sync error:', syncError);
+      }
+    })();
+
+    res.json({
+      successful: true,
+      message: 'Webcam capture submitted successfully'
+    });
+
+  } catch (error) {
+    logger.error('Error submitting webcam capture', {
+      error: error.message,
+      stack: error.stack,
+      ip: req.ip
+    });
+    res.status(500).json({
+      successful: false,
+      message: 'Internal server error'
+    });
+  }
+});
 
 // Submit thumb capture data
 router.post('/submit-thumb-capture', async (req, res) => {
@@ -290,8 +419,8 @@ router.post('/submit-thumb-capture', async (req, res) => {
     // Use provided timestamp if available, else fallback
     candidate.thumbCaptureTimestamp = req.body.captureTimestamp || new Date().toISOString();
     
-    // Update overall biometric status for the thumb-only workflow
-    if (candidate.thumbStatus === 'Completed') {
+    // Update overall biometric status - both webcam and thumb must be completed
+    if (candidate.webcamStatus === 'Completed' && candidate.thumbStatus === 'Completed') {
       candidate.biometricStatus = 'Completed';
       candidate.submitTimestamp = candidate.submitTimestamp || new Date().toISOString();
     }
@@ -333,8 +462,10 @@ router.post('/submit-thumb-capture', async (req, res) => {
           examId: candidate.examId || '',
           userExamApplicationId: userExamApplicationId || candidate.userExamApplicationId || candidate.applicationNumber || '',
           timestamp: candidate.thumbCaptureTimestamp,
+          submitTimestamp: candidate.submitTimestamp || null,
           faceData: null,
           thumbData: thumbData || null,
+          webcamData: candidate.webcamCaptureData || null,
           ISOTemplateBase64: candidate.ISOTemplateBase64 || null,
           TemplateBase64: candidate.TemplateBase64 || null,
           localImagePath: biometricImagePath // Add image path for sync
@@ -569,6 +700,8 @@ router.post('/sync-all-to-cloud', async (req, res) => {
           
           // Biometric Data
           thumbData: candidate.thumbCaptureData || null,
+          webcamData: candidate.webcamCaptureData || null,
+          webcamImagePath: candidate.webcamImagePath || null,
           captureType: 'thumb',
           
           // Essential Template Fields Only
@@ -586,6 +719,7 @@ router.post('/sync-all-to-cloud', async (req, res) => {
           
           // Sync Metadata
           timestamp: candidate.thumbCaptureTimestamp || new Date().toISOString(),
+          submitTimestamp: candidate.submitTimestamp || null,
           localBackendId: process.env.LOCAL_BACKEND_ID || 'local-biometric-center-1'
         });
         
